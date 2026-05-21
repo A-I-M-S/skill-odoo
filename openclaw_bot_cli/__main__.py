@@ -1,3 +1,5 @@
 from .cli import main
+import sys
 
-raise SystemExit(main())
+if __name__ == "__main__":
+    sys.exit(main())

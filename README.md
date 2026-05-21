@@ -1,94 +1,92 @@
-# OpenClaw Odoo Integration
+# skill-odoo — AI receipt → Odoo journal entry pipeline
 
-OpenClaw Odoo Integration automates expense bookkeeping by extracting data from receipts/invoices and posting journal entries to Odoo.
+Folder-based pipeline that turns receipts (PDF, image, or scanned-PDF) into a
+single balanced monthly draft entry in Odoo, with the original file attached
+and the local copy deleted on success.
 
-## Goal
+## What it does
 
-Turn documents sent over WhatsApp (receipts, invoices, and other expenses) into correctly categorized double-entry accounting records in Odoo.
+1. Watches a folder (default `./incoming_receipts/`).
+2. OCR / PDF-text extracts each file.
+3. Classifies it against your live Odoo Chart of Accounts using an
+   OpenAI-compatible LLM (default: Gemma via OpenRouter / Google AI Studio).
+4. Finds the current month's draft `account.move` in the configured journal
+   (or adopts an existing empty draft, or creates one). The move is named and
+   referenced like `26May`.
+5. Appends a single debit line per receipt. Currency ≠ SGD is auto-converted
+   to SGD via [frankfurter.dev](https://frankfurter.dev) (no API key needed).
+6. Recomputes a single credit line to **202040 Shareholder Notes Payable** so
+   the move stays balanced regardless of how many receipts are added.
+7. Attaches the receipt file to the journal entry (`ir.attachment`).
+8. Deletes the local file on success.
+9. **Leaves the entry as draft** — you review and post manually in Odoo.
 
-## High-Level Workflow
-
-1. **Set up Odoo**
-   - Create a free Odoo account.
-   - Enable and use the **Accounting** module.
-2. **Generate API access**
-   - In Odoo, go to **Preferences → Security** and generate an API key.
-3. **Receive expense documents**
-   - Users send receipts/invoices/expense documents through WhatsApp to OpenClaw.
-4. **Extract document content**
-   - If the PDF contains embedded text, use `pdfplumber`.
-   - If the PDF is image-based, convert pages to images with `pdf2image`.
-   - Run OCR with `tesseract-ocr` to extract text from images/scans.
-5. **Load accounting context**
-   - Check whether a Chart of Accounts JSON is already available.
-   - If missing, fetch it.
-   - Allow manual chart-of-accounts refresh when data is outdated.
-6. **Classify accounting treatment with AI**
-   - Send extracted document content plus chart-of-accounts context to an agent.
-   - Agent decides:
-     - Account classification
-     - Required double-entry postings
-7. **Post to Odoo**
-   - Use the generated API key to insert the finalized accounting records into Odoo.
-
-## Core Components
-
-- **Ingestion**: WhatsApp document intake
-- **Extraction**: `pdfplumber`, `pdf2image`, `tesseract-ocr`
-- **Accounting context**: Chart of Accounts JSON loader/updater
-- **AI reasoning**: Account mapping + double-entry decisioning
-- **Execution**: Odoo API insertion
-
-## Suggested Next Improvements
-
-- Add confidence scoring for OCR and classification outputs.
-- Add human-in-the-loop approval for low-confidence postings.
-- Add retry/error queues for failed API insertions.
-- Add audit logs for every accounting decision and posted entry.
-## OpenClaw Skill
-
-For agent-oriented execution instructions, see [`SKILL.md`](SKILL.md).
-
-## CLI Script for Bot Integration
-
-Use the `openclaw_bot_cli/` package as a callable command-line entrypoint for your bot.
-
-Setup env config first:
+## Setup
 
 ```bash
-cp .env.sample .env
-# then edit .env with your real keys
+python3 -m venv .venv && . .venv/bin/activate
+pip install pdfplumber pdf2image pytesseract Pillow requests
+# system: tesseract-ocr + poppler-utils
+cp .env.sample .env  # then fill in values
 ```
 
-Example:
+In Odoo: **Preferences → Account Security → API Keys → New** to generate the
+key used as `ODOO_API_KEY`.
+
+## Usage
 
 ```bash
-python -m openclaw_bot_cli ./sample_receipt.txt --coa ./chart_of_accounts.json --output ./result.json
+# Read-only check: auth, journal, shareholder account
+python -m openclaw_bot_cli probe
+
+# Dry-run: list inbox files, show what would happen, no writes
+python -m openclaw_bot_cli run --dry-run
+
+# Real run: OCR + classify + post draft + attach + delete locals
+python -m openclaw_bot_cli run --output ./run.json
 ```
 
-Options:
-- `--coa`: chart of accounts JSON file (required)
-- `--refresh-coa-cmd`: optional shell command to refresh chart-of-accounts JSON before processing
-- `--allow-post`: enable posting step (kept as a safe stub until Odoo API call is wired)
-- `--api-key`: Odoo API key (used with `--allow-post`)
-- `ODOO_API_KEY`: API key loaded from `.env` (or shell env)
-- `--use-ai`: use AI-based account mapping with `AI_CHAT_URL`, `AI_MODEL`, `AI_SECRET` from `.env`
+## Configuration (`.env`)
 
-API key input examples:
+| Key | Meaning |
+| --- | --- |
+| `ODOO_URL` / `ODOO_DB` / `ODOO_LOGIN` / `ODOO_API_KEY` | Odoo connection |
+| `SHAREHOLDER_ACCOUNT_CODE` | Credit-side account (default `202040`) |
+| `JOURNAL_CODE` / `JOURNAL_TYPE` | Target journal (default `MISC` / `general`) |
+| `MOVE_REF_FORMAT` | strftime format for the move ref (default `%y%b` → `26May`) |
+| `MOVE_NAME_FROM_REF` | also set `account.move.name` to the ref |
+| `MONTHLY_CONSOLIDATE` | reuse the month's draft instead of creating new ones |
+| `AUTO_POST` | always `false` — entries stay draft until you post in Odoo |
+| `DEFAULT_CURRENCY` / `FX_BASE_CURRENCY` | book currency (default `SGD`) |
+| `FX_PROVIDER` | `frankfurter` (free, no key) |
+| `AI_CHAT_URL` / `AI_MODEL` / `AI_SECRET` | OpenAI-compatible chat endpoint |
+| `AI_PROVIDER_ORDER` | OpenRouter provider routing (e.g. `google-ai-studio`) |
+| `RECEIPTS_INBOX` | Folder to scan (default `./incoming_receipts`) |
+| `RECEIPTS_PROCESSED_DELETE` | Delete local file after successful posting |
 
-```bash
-python -m openclaw_bot_cli ./sample_receipt.txt --coa ./chart_of_accounts.json --allow-post --api-key "your_api_key"
+## Accounting model
+
+Every receipt becomes:
+
+| | Debit | Credit |
+| --- | --- | --- |
+| Expense / asset account chosen by the LLM | gross SGD | — |
+| `202040 Shareholder Notes Payable` | — | gross SGD |
+
+Per month, **one** `account.move` accumulates all debit lines plus one credit
+line summing to the total — perfectly balanced, ready for one-click posting.
+
+## Module layout
+
 ```
-
-```bash
-export ODOO_API_KEY="your_api_key"
-python -m openclaw_bot_cli ./sample_receipt.txt --coa ./chart_of_accounts.json --allow-post
+openclaw_bot_cli/
+├── cli.py              # entrypoints: probe, run
+├── config.py           # .env loader + Settings dataclass
+├── extraction.py       # OCR / PDF-text extraction
+├── ai_automation.py    # LLM classifier (OpenAI-compatible)
+├── fx.py               # Frankfurter live FX → SGD
+├── odoo_client.py      # XML-RPC wrapper
+├── monthly_journal.py  # Find / adopt / balance the month's draft entry
+├── processor.py        # End-to-end orchestration
+└── models.py           # Dataclasses
 ```
-
-AI automation example:
-
-```bash
-python -m openclaw_bot_cli ./sample_receipt.txt --coa ./chart_of_accounts.json --use-ai --output ./result.json
-```
-
-The script outputs the accounting JSON payload to stdout and to the `--output` file.

@@ -1,76 +1,70 @@
+"""Command-line entrypoint for skill-odoo."""
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import logging
 import sys
 from pathlib import Path
 
-from .accounting import (
-    classify_accounting,
-    classify_accounting_automated,
-    load_chart_of_accounts,
-    post_to_odoo,
-    refresh_chart_of_accounts,
-    validate_result,
-)
-from .config import load_env_file
-from .extraction import extract_text
+from .config import Settings, load_env_file
+from .odoo_client import Odoo
+from .processor import process_inbox
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="OpenClaw Odoo accounting CLI")
-    parser.add_argument("document", type=Path, help="Path to receipt/invoice file (.pdf, image, .txt)")
-    parser.add_argument("--coa", type=Path, required=True, help="Path to chart of accounts JSON")
-    parser.add_argument("--api-key", default="", help="Odoo API key (or use ODOO_API_KEY env var; required with --allow-post)")
-    parser.add_argument("--api-key", default="", help="Odoo API key (required only with --allow-post)")
-    parser.add_argument("--default-currency", default="USD", help="Fallback currency code")
-    parser.add_argument("--refresh-coa-cmd", default="", help="Shell command to refresh COA JSON")
-    parser.add_argument("--output", type=Path, default=Path("accounting_result.json"), help="Result output file")
-    parser.add_argument("--allow-post", action="store_true", help="Attempt to post to Odoo")
-    parser.add_argument("--use-ai", action="store_true", help="Use AI classification via AI_CHAT_URL/AI_MODEL/AI_SECRET from .env")
-    return parser.parse_args()
+def _add_common(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--env", type=Path, default=Path(".env"), help="Path to .env file")
+    p.add_argument("--verbose", "-v", action="store_true")
 
 
-def main() -> int:
-    load_env_file()
-    args = parse_args()
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="openclaw_bot_cli", description="OpenClaw skill-odoo")
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
-    try:
-        if args.refresh_coa_cmd:
-            refresh_chart_of_accounts(args.coa, args.refresh_coa_cmd)
+    p_probe = sub.add_parser("probe", help="Authenticate + describe target Odoo (read-only)")
+    _add_common(p_probe)
 
-        api_key = args.api_key or os.getenv("ODOO_API_KEY", "")
-        if args.allow_post and not api_key:
-            raise ValueError("Missing Odoo API key. Pass --api-key or set ODOO_API_KEY.")
+    p_run = sub.add_parser("run", help="Process all receipts in the inbox folder")
+    _add_common(p_run)
+    p_run.add_argument("--dry-run", action="store_true", help="Don't write anything to Odoo")
+    p_run.add_argument("--output", type=Path, default=None, help="Write JSON result to this file")
 
-        coa = load_chart_of_accounts(args.coa)
-        raw_text, extraction_mode = extract_text(args.document)
-        if args.use_ai:
-            result = classify_accounting_automated(raw_text, coa, default_currency=args.default_currency)
-        else:
-            result = classify_accounting(raw_text, coa, default_currency=args.default_currency)
-        result.notes = f"{result.notes}; extraction_mode={extraction_mode}"
-        validate_result(result, coa)
+    args = parser.parse_args(argv)
 
-        post_response = post_to_odoo(result, api_key=api_key, dry_run=not args.allow_post)
-        coa = load_chart_of_accounts(args.coa)
-        raw_text, extraction_mode = extract_text(args.document)
-        result = classify_accounting(raw_text, coa, default_currency=args.default_currency)
-        result.notes = f"{result.notes}; extraction_mode={extraction_mode}"
-        validate_result(result, coa)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
 
-        post_response = post_to_odoo(result, api_key=args.api_key, dry_run=not args.allow_post)
-        output_payload = result.as_json()
-        output_payload["post_response"] = post_response
-        args.output.write_text(json.dumps(output_payload, indent=2), encoding="utf-8")
+    load_env_file(args.env)
+    settings = Settings.from_env()
 
-        print(json.dumps(output_payload, indent=2))
+    if args.cmd == "probe":
+        odoo = Odoo(url=settings.odoo_url, db=settings.odoo_db, login=settings.odoo_login, api_key=settings.odoo_api_key)
+        user = odoo.user_info()
+        journal = odoo.find_journal(settings.journal_code, settings.journal_type)
+        sh = odoo.find_account(settings.shareholder_account_code)
+        result = {
+            "uid": odoo.uid,
+            "user": {"name": user["name"], "login": user["login"], "tz": user.get("tz")},
+            "company": user["company_id"],
+            "journal": journal,
+            "shareholder_account": sh,
+        }
+        print(json.dumps(result, indent=2, default=str))
         return 0
-    except Exception as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
+
+    if args.cmd == "run":
+        result = process_inbox(settings, dry_run=args.dry_run)
+        out = json.dumps(result, indent=2, default=str)
+        print(out)
+        if args.output:
+            args.output.write_text(out, encoding="utf-8")
+        return 0
+
+    parser.error(f"Unknown command {args.cmd!r}")
+    return 2
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    sys.exit(main())
