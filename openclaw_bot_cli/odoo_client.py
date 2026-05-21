@@ -156,6 +156,37 @@ class Odoo:
             vals["mimetype"] = mimetype
         return self.rpc("ir.attachment", "create", [vals])
 
+    def attach_file_to_move(self, move_id: int, file_path: Path, body: str | None = None) -> int:
+        """Attach a file to an account.move and post it to the chatter."""
+        data = base64.b64encode(file_path.read_bytes()).decode("ascii")
+        attachment_id = self.rpc(
+            "ir.attachment",
+            "create",
+            [{
+                "name": file_path.name,
+                "datas": data,
+                "res_model": "account.move",
+                "res_id": move_id,
+                "type": "binary",
+            }],
+        )
+        # Also post to chatter so the receipt is visible in the timeline view.
+        try:
+            self.rpc(
+                "account.move",
+                "message_post",
+                [[move_id]],
+                {
+                    "body": body or f"Receipt attached: {file_path.name}",
+                    "attachment_ids": [attachment_id],
+                    "message_type": "comment",
+                    "subtype_xmlid": "mail.mt_note",
+                },
+            )
+        except Exception:  # noqa: BLE001 — chatter is a nice-to-have
+            pass
+        return attachment_id
+
     def list_attachments(self, *, move_id: int) -> list[dict[str, Any]]:
         ids = self.rpc(
             "ir.attachment",
