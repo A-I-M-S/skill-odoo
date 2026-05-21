@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Thin launcher so you don't have to remember to activate the venv.
+#
+# Usage from anywhere:
+#   ~/skill-odoo/skill-odoo run            # process the inbox
+#   ~/skill-odoo/skill-odoo probe          # read-only Odoo connectivity check
+#
+# Or symlink once and forget it exists:
+#   ln -s ~/skill-odoo/skill-odoo ~/.local/bin/skill-odoo
+#   skill-odoo run
+
+set -e
+HERE="$(cd "$(dirname "$0")" && pwd)"
+VENV="$HERE/.venv"
+
+# First-run bootstrap: create venv + install deps if missing.
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "[skill-odoo] creating venv at $VENV"
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" install --quiet --upgrade pip
+  "$VENV/bin/pip" install --quiet -r "$HERE/requirements.txt"
+fi
+
+cd "$HERE"
+exec "$VENV/bin/python" -m openclaw_bot_cli "$@"
