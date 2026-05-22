@@ -8,6 +8,7 @@ slimmed Chart-of-Accounts.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -78,17 +79,24 @@ def classify_receipt(
             "X-Title": "skill-odoo",
         },
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = json.loads(r.read())
-    except urllib.error.HTTPError as exc:
-        raise AIError(f"LLM HTTP {exc.code}: {exc.read().decode(errors='ignore')[:400]}") from exc
-    except Exception as exc:
-        raise AIError(f"LLM call failed: {exc}") from exc
-
-    content = body.get("choices", [{}])[0].get("message", {}).get("content", "")
-    parsed = _coerce_json(content)
-    return _to_extraction(parsed, default_currency=default_currency, raw_text=raw_text)
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = json.loads(r.read().decode("utf-8"))
+            content = _message_content(body)
+            return _to_extraction(content, raw_text=raw_text, default_currency=default_currency)
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode(errors="ignore")[:400]
+            last_error = AIError(f"LLM HTTP {exc.code}: {err_body}")
+            if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise last_error from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = AIError(f"LLM connection error: {exc}")
+            if attempt == 2:
+                raise last_error from exc
+        time.sleep([2, 5][attempt])
+    raise last_error or AIError("LLM request failed")
 
 
 def _coerce_json(text: str) -> dict[str, Any]:
