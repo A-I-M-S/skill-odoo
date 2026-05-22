@@ -8,7 +8,7 @@ from typing import Any
 SUPPORTED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
 
 
-def extract_text(document_path: Path) -> tuple[str, str]:
+def extract_text(document_path: Path, *, ocr_provider: str = "tesseract", zo_ocr_token: str = "", zo_ocr_model: str = "openai:gpt-5.5-2026-04-23") -> tuple[str, str]:
     """Return ``(text, source_kind)`` for a given document.
 
     ``source_kind`` is one of ``plain_text``, ``pdf_text``, ``ocr_pdf``, ``ocr_image``.
@@ -18,13 +18,27 @@ def extract_text(document_path: Path) -> tuple[str, str]:
     if suffix == ".txt":
         return document_path.read_text(encoding="utf-8", errors="ignore"), "plain_text"
 
+    provider = (ocr_provider or "tesseract").lower()
+
     if suffix == ".pdf":
         text = _extract_pdf_text(document_path)
         if text.strip():
             return text, "pdf_text"
+        if provider == "zo":
+            try:
+                from .zo_ocr import ocr_with_zo
+                return ocr_with_zo(document_path, token=zo_ocr_token, model_name=zo_ocr_model), "zo_ocr_pdf"
+            except Exception:
+                return _ocr_pdf(document_path), "ocr_pdf_fallback"
         return _ocr_pdf(document_path), "ocr_pdf"
 
     if suffix in SUPPORTED_IMAGE:
+        if provider == "zo":
+            try:
+                from .zo_ocr import ocr_with_zo
+                return ocr_with_zo(document_path, token=zo_ocr_token, model_name=zo_ocr_model), "zo_ocr_image"
+            except Exception:
+                return _ocr_image(document_path), "ocr_image_fallback"
         return _ocr_image(document_path), "ocr_image"
 
     raise ValueError(f"Unsupported file type: {suffix}")

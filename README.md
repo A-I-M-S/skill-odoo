@@ -129,3 +129,11 @@ tail -n 20 audit_logs/$(date +%Y-%m).jsonl | jq .
 If OCR fails or the model returns amount `0`, the receipt is moved to
 `./failed_receipts/` with a `.error.txt` sidecar instead of being uploaded or
 deleted.
+
+
+## OCR provider
+
+Set `OCR_PROVIDER=zo` to use Zo inference OCR for images/scanned PDFs before
+falling back to local Tesseract. This is recommended for crumpled phone photos
+and receipts with Chinese text. Configure `ZO_OCR_TOKEN` on non-Zo hosts; on Zo
+Computer, `ZO_CLIENT_IDENTITY_TOKEN` is available automatically.

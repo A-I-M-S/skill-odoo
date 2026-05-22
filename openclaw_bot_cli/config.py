@@ -48,6 +48,10 @@ class Settings:
     # FX
     fx_provider: str
     fx_base_currency: str
+    # OCR
+    ocr_provider: str
+    zo_ocr_token: str
+    zo_ocr_model: str
     # Inbox
     receipts_inbox: Path
     receipts_processed_delete: bool
@@ -78,6 +82,9 @@ class Settings:
             default_currency=os.getenv("DEFAULT_CURRENCY", "SGD").upper(),
             fx_provider=os.getenv("FX_PROVIDER", "frankfurter").lower(),
             fx_base_currency=os.getenv("FX_BASE_CURRENCY", "SGD").upper(),
+            ocr_provider=os.getenv("OCR_PROVIDER", "tesseract").strip().lower(),
+            zo_ocr_token=os.getenv("ZO_OCR_TOKEN", os.getenv("ZO_API_KEY", os.getenv("ZO_CLIENT_IDENTITY_TOKEN", ""))).strip(),
+            zo_ocr_model=os.getenv("ZO_OCR_MODEL", "openai:gpt-5.5-2026-04-23").strip(),
             receipts_inbox=Path(os.getenv("RECEIPTS_INBOX", "./incoming_receipts")),
             receipts_processed_delete=_b("RECEIPTS_PROCESSED_DELETE", True),
             ai_chat_url=os.getenv("AI_CHAT_URL", "").strip(),
