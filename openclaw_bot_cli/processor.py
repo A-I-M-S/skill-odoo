@@ -102,7 +102,12 @@ def process_inbox(
 
     for path in files:
         try:
-            text, kind = extract_text(path)
+            text, kind = extract_text(
+                path,
+                ocr_provider=settings.ocr_provider,
+                zo_ocr_token=settings.zo_ocr_token,
+                zo_ocr_model=settings.zo_ocr_model,
+            )
             audit_base = {
                 "event": "receipt_processing",
                 "file": path.name,
