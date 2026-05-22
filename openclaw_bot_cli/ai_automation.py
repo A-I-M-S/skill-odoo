@@ -84,8 +84,11 @@ def classify_receipt(
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 body = json.loads(r.read().decode("utf-8"))
-            content = _message_content(body)
-            return _to_extraction(content, raw_text=raw_text, default_currency=default_currency)
+            try:
+                content = body["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as exc:
+                raise AIError(f"Unexpected LLM response shape: {str(body)[:300]}") from exc
+            return _to_extraction(_coerce_json(content), raw_text=raw_text, default_currency=default_currency)
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode(errors="ignore")[:400]
             last_error = AIError(f"LLM HTTP {exc.code}: {err_body}")
