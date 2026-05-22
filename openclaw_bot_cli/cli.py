@@ -29,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--dry-run", action="store_true", help="Don't write anything to Odoo")
     p_run.add_argument("--output", type=Path, default=None, help="Write JSON result to this file")
 
+    p_bot = sub.add_parser("telegram-bot", help="Run Telegram receipt ingestion bot")
+    _add_common(p_bot)
+
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -60,6 +63,12 @@ def main(argv: list[str] | None = None) -> int:
         print(out)
         if args.output:
             args.output.write_text(out, encoding="utf-8")
+        return 0
+
+    if args.cmd == "telegram-bot":
+        from .telegram_bot import TelegramReceiptBot
+
+        TelegramReceiptBot(env_path=args.env).run_forever()
         return 0
 
     parser.error(f"Unknown command {args.cmd!r}")

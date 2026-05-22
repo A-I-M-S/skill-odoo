@@ -90,3 +90,24 @@ openclaw_bot_cli/
 ├── processor.py        # End-to-end orchestration
 └── models.py           # Dataclasses
 ```
+
+
+## Telegram bot
+
+The Telegram bot is a private long-polling ingestor for receipts.
+
+1. Create a bot with BotFather and set `TELEGRAM_BOT_TOKEN` in `.env`.
+2. Start it once with no allowed users:
+   ```bash
+   ./skill-odoo telegram-bot
+   ```
+3. Send `/start` to the bot; it will reply with your numeric Telegram user ID.
+4. Add that ID to `.env`:
+   ```bash
+   TELEGRAM_ALLOWED_USER_IDS=123456789
+   ```
+5. Run it permanently as a background service/process.
+
+Usage after setup: send the bot a receipt photo, image file, or PDF. It saves the
+file into `RECEIPTS_INBOX`, runs the normal Odoo receipt pipeline immediately,
+and replies with the Odoo draft/ref, total, debit account, and attachment id.
