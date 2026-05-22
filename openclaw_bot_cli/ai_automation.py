@@ -26,6 +26,9 @@ SYSTEM_PROMPT = (
     "currency (ISO-4217, e.g. SGD/USD/MYR), amount (number, gross total >0), "
     "debit_account_code (str, must be a code from the provided COA), description (str, <=80 chars), "
     "confidence (0..1 number), notes (str). "
+    "For amount, use the final amount actually charged/paid: look for labels like TOTAL, NETS, EFTPOS, CARD, PAID, AMOUNT DUE, or GRAND TOTAL. "
+    "Do NOT use change, savings, points, GST alone, subtotal, tendered cash, balance brought forward, or zero lines. "
+    "If the final paid total is unreadable, set confidence below 0.4 and amount to 0. "
     "Pick the SINGLE most appropriate expense or asset account. "
     "Never invent codes. Never include explanation or markdown. Output JSON only."
 )
@@ -110,12 +113,18 @@ def _to_extraction(p: dict[str, Any], *, default_currency: str, raw_text: str) -
         amount = float(p.get("amount", 0) or 0)
     except (TypeError, ValueError):
         amount = 0.0
+    amount = round(abs(amount), 2)
+    debit_account_code = str(p.get("debit_account_code", "")).strip()
+    if amount <= 0:
+        raise AIError("LLM could not identify a positive final paid total from OCR text; leaving receipt unprocessed")
+    if not debit_account_code:
+        raise AIError("LLM did not select a debit account code; leaving receipt unprocessed")
     return ReceiptExtraction(
         vendor=str(p.get("vendor", "Unknown")).strip() or "Unknown",
         tx_date=str(p.get("date", "")).strip(),
         currency=str(p.get("currency", default_currency)).strip().upper() or default_currency,
-        amount=round(abs(amount), 2),
-        debit_account_code=str(p.get("debit_account_code", "")).strip(),
+        amount=amount,
+        debit_account_code=debit_account_code,
         description=str(p.get("description", "")).strip()[:200],
         confidence=float(p.get("confidence", 0) or 0),
         notes=str(p.get("notes", "")).strip(),

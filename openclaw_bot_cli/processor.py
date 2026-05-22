@@ -34,6 +34,16 @@ class FileResult:
     move_id: int | None
     attachment_id: int | None
     error: str = ""
+    failed_path: str = ""
+
+
+@dataclass
+class PendingReceipt:
+    path: Path
+    extraction: ReceiptExtraction
+    debit_sgd: float
+    rate: float
+    debit_line: dict[str, Any]
 
 
 def process_inbox(
@@ -86,7 +96,7 @@ def process_inbox(
         shareholder_account_id=shareholder["id"],
     )
 
-    new_debit_lines: list[dict[str, Any]] = []
+    pending: list[PendingReceipt] = []
     results: list[FileResult] = []
 
     for path in files:
@@ -105,6 +115,8 @@ def process_inbox(
             )
             if extraction.debit_account_code not in code_to_id:
                 raise RuntimeError(f"AI returned unknown account code {extraction.debit_account_code!r}")
+            if extraction.amount <= 0:
+                raise RuntimeError("Receipt total is zero or unreadable")
 
             tx_dt = _parse_date(extraction.tx_date) or today
             converted, rate = fx.convert(
@@ -114,6 +126,8 @@ def process_inbox(
                 on=tx_dt,
                 provider=settings.fx_provider,
             )
+            if converted <= 0:
+                raise RuntimeError("Converted receipt total is zero or unreadable")
 
             label = _line_label(extraction, converted, rate, settings.fx_base_currency)
             debit_line = {
@@ -122,38 +136,42 @@ def process_inbox(
                 "debit": converted,
                 "credit": 0.0,
             }
-            new_debit_lines.append(debit_line)
-
-            attach_id = odoo.attach_file(
-                move_id=draft.move_id,
-                file_path=path,
-                mimetype=mimetypes.guess_type(path.name)[0],
-            )
-
-            results.append(FileResult(
-                path=path, ok=True, extraction=extraction,
-                debit_sgd=converted, rate=rate, move_id=draft.move_id,
-                attachment_id=attach_id,
-            ))
-            log.info("OK %s -> %s %s%.2f rate=%.4f acct=%s", path.name, extraction.vendor,
+            pending.append(PendingReceipt(path, extraction, converted, rate, debit_line))
+            log.info("CLASSIFIED %s -> %s %s%.2f rate=%.4f acct=%s", path.name, extraction.vendor,
                      settings.fx_base_currency, converted, rate, extraction.debit_account_code)
         except Exception as exc:
             log.exception("FAIL %s", path.name)
+            failed_path = _move_to_failed(path, str(exc))
             results.append(FileResult(
                 path=path, ok=False, extraction=None, debit_sgd=0.0,
                 rate=0.0, move_id=None, attachment_id=None, error=str(exc),
+                failed_path=str(failed_path) if failed_path else "",
             ))
 
-    if new_debit_lines:
+    if pending:
         totals = rebuild_lines_with_shareholder_balance(
             odoo,
             move_id=draft.move_id,
             shareholder_account_id=shareholder["id"],
             ref=ref,
-            new_debit_lines=new_debit_lines,
+            new_debit_lines=[p.debit_line for p in pending],
         )
     else:
         totals = {"total_debit": 0.0, "credit": 0.0}
+
+    for item in pending:
+        attach_id = odoo.attach_file(
+            move_id=draft.move_id,
+            file_path=item.path,
+            mimetype=mimetypes.guess_type(item.path.name)[0],
+        )
+        results.append(FileResult(
+            path=item.path, ok=True, extraction=item.extraction,
+            debit_sgd=item.debit_sgd, rate=item.rate, move_id=draft.move_id,
+            attachment_id=attach_id,
+        ))
+        log.info("OK %s -> %s %s%.2f rate=%.4f acct=%s", item.path.name, item.extraction.vendor,
+                 settings.fx_base_currency, item.debit_sgd, item.rate, item.extraction.debit_account_code)
 
     if settings.receipts_processed_delete:
         for r in results:
@@ -178,6 +196,7 @@ def process_inbox(
                 "debit_sgd": r.debit_sgd,
                 "rate": r.rate,
                 "attachment_id": r.attachment_id,
+                "failed_path": r.failed_path,
             }
             for r in results
         ],
@@ -204,3 +223,15 @@ def _parse_date(s: str) -> date | None:
     if m:
         return date(int(m[1]), int(m[2]), int(m[3]))
     return None
+
+
+def _move_to_failed(path: Path, reason: str) -> Path | None:
+    if not path.exists():
+        return None
+    failed_dir = path.parent.parent / "failed_receipts"
+    failed_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", path.name).strip("-") or "receipt"
+    dest = failed_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{safe_name}"
+    path.replace(dest)
+    (dest.with_suffix(dest.suffix + ".error.txt")).write_text(reason, encoding="utf-8")
+    return dest

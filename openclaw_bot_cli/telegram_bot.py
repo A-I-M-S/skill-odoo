@@ -159,14 +159,15 @@ class TelegramReceiptBot:
             self._send_message(chat_id, f"❌ Processing failed for `{trigger}`:\n`{exc}`")
             return
 
-        processed = summary.get("processed", [])
-        failed = summary.get("failed", [])
+        results = summary.get("results", [])
+        processed = [r for r in results if r.get("ok")]
+        failed = [r for r in results if not r.get("ok")]
         totals = summary.get("totals", {})
         ref = summary.get("ref", "current month")
         lines = [f"✅ Processed into Odoo draft `{ref}`."]
         if totals:
-            lines.append(f"Debits: SGD {totals.get('total_debit', 0):.2f}")
-            lines.append(f"Credit: SGD {totals.get('credit_amount', 0):.2f} → `{self.settings.shareholder_account_code}`")
+            lines.append(f"Debits: SGD {float(totals.get('total_debit', 0) or 0):.2f}")
+            lines.append(f"Credit: SGD {float(totals.get('credit', 0) or 0):.2f} → `{self.settings.shareholder_account_code}`")
         for item in processed[-5:]:
             ex = item.get("extraction", {})
             acc = ex.get("debit_account_code", "?")
@@ -174,8 +175,10 @@ class TelegramReceiptBot:
                 f"• {ex.get('vendor', 'Unknown')} — {ex.get('currency', '')} {float(ex.get('amount', 0) or 0):.2f} "
                 f"→ `{acc}`; attachment `{item.get('attachment_id')}`"
             )
-        if failed:
-            lines.append(f"⚠️ Failed files: {len(failed)}. Check server logs / inbox.")
+        for item in failed[-3:]:
+            lines.append(f"⚠️ `{item.get('file', 'receipt')}` failed: {item.get('error', 'unknown error')}")
+            if item.get("failed_path"):
+                lines.append(f"Kept for review: `{item['failed_path']}`")
         if not processed and not failed:
             lines.append("No supported files were waiting in the inbox.")
         self._send_message(chat_id, "\n".join(lines))
