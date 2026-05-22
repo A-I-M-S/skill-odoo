@@ -45,18 +45,33 @@ def _extract_pdf_text(path: Path) -> str:
 def _ocr_pdf(path: Path) -> str:
     try:
         from pdf2image import convert_from_path  # type: ignore
-        import pytesseract  # type: ignore
     except ImportError as exc:
         raise RuntimeError("pdf2image + pytesseract required for scanned PDFs") from exc
     pages = convert_from_path(str(path), dpi=300)
-    return "\n".join(pytesseract.image_to_string(p) for p in pages)
+    return "\n".join(_ocr_pil_image(p) for p in pages)
 
 
 def _ocr_image(path: Path) -> str:
     try:
         from PIL import Image  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("pillow required for image OCR") from exc
+    with Image.open(path) as image:
+        return _ocr_pil_image(image)
+
+
+def _ocr_pil_image(image: Any) -> str:
+    try:
+        from PIL import ImageEnhance, ImageOps  # type: ignore
         import pytesseract  # type: ignore
     except ImportError as exc:
-        raise RuntimeError("pytesseract + pillow required for image OCR") from exc
-    with Image.open(path) as image:
-        return pytesseract.image_to_string(image)
+        raise RuntimeError("pytesseract + pillow required for OCR") from exc
+
+    img = ImageOps.exif_transpose(image).convert("RGB")
+    gray = ImageOps.grayscale(img)
+    gray = ImageOps.autocontrast(gray)
+    gray = ImageEnhance.Sharpness(gray).enhance(2.0)
+    scale = max(2, 1200 // max(gray.width, 1))
+    if scale > 1:
+        gray = gray.resize((gray.width * scale, gray.height * scale))
+    return pytesseract.image_to_string(gray, config="--psm 6")
