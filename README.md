@@ -111,3 +111,21 @@ The Telegram bot is a private long-polling ingestor for receipts.
 Usage after setup: send the bot a receipt photo, image file, or PDF. It saves the
 file into `RECEIPTS_INBOX`, runs the normal Odoo receipt pipeline immediately,
 and replies with the Odoo draft/ref, total, debit account, and attachment id.
+
+
+## Audit logs
+
+Each receipt run writes structured JSONL records to `./audit_logs/YYYY-MM.jsonl`
+(or `AUDIT_LOG_DIR`). Logs include the filename, OCR text, model/provider,
+LLM raw response, parsed extraction, success/failure stage, and Odoo attachment
+metadata. API keys and binary files are not logged.
+
+Useful diagnostics:
+
+```bash
+tail -n 20 audit_logs/$(date +%Y-%m).jsonl | jq .
+```
+
+If OCR fails or the model returns amount `0`, the receipt is moved to
+`./failed_receipts/` with a `.error.txt` sidecar instead of being uploaded or
+deleted.

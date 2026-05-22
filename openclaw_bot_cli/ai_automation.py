@@ -35,20 +35,14 @@ SYSTEM_PROMPT = (
 )
 
 
-def classify_receipt(
+def build_ai_payload(
     raw_text: str,
     coa_short: list[dict[str, Any]],
     *,
-    chat_url: str,
     model: str,
-    api_key: str,
     provider_order: str = "",
     default_currency: str = "SGD",
-    timeout: int = 60,
-) -> ReceiptExtraction:
-    if not chat_url or not model or not api_key:
-        raise AIError("AI_CHAT_URL, AI_MODEL, AI_SECRET must all be set")
-
+) -> dict[str, Any]:
     user_msg = (
         f"Default currency if unclear: {default_currency}.\n"
         f"Chart of Accounts (code | name | type):\n"
@@ -56,7 +50,6 @@ def classify_receipt(
         + "\n\nReceipt OCR text:\n"
         + raw_text.strip()
     )
-
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
@@ -68,7 +61,32 @@ def classify_receipt(
     }
     if provider_order:
         payload["provider"] = {"order": [provider_order], "allow_fallbacks": False}
+    return payload
 
+
+def classify_receipt_with_debug(
+    raw_text: str,
+    coa_short: list[dict[str, Any]],
+    *,
+    chat_url: str,
+    model: str,
+    api_key: str,
+    provider_order: str = "",
+    default_currency: str = "SGD",
+    timeout: int = 60,
+) -> tuple[ReceiptExtraction, dict[str, Any]]:
+    if not chat_url or not model or not api_key:
+        raise AIError("AI_CHAT_URL, AI_MODEL, AI_SECRET must all be set")
+    payload = build_ai_payload(raw_text, coa_short, model=model, provider_order=provider_order, default_currency=default_currency)
+    debug: dict[str, Any] = {
+        "chat_url": chat_url,
+        "model": model,
+        "provider_order": provider_order,
+        "request": {k: v for k, v in payload.items() if k != "messages"},
+        "system_prompt": SYSTEM_PROMPT,
+        "user_prompt": payload["messages"][1]["content"],
+        "attempts": [],
+    }
     req = urllib.request.Request(
         chat_url,
         data=json.dumps(payload).encode("utf-8"),
@@ -88,18 +106,52 @@ def classify_receipt(
                 content = body["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError) as exc:
                 raise AIError(f"Unexpected LLM response shape: {str(body)[:300]}") from exc
-            return _to_extraction(_coerce_json(content), raw_text=raw_text, default_currency=default_currency)
+            parsed = _coerce_json(content)
+            extraction = _to_extraction(parsed, raw_text=raw_text, default_currency=default_currency)
+            debug["raw_response"] = body
+            debug["message_content"] = content
+            debug["parsed_json"] = parsed
+            debug["attempts"].append({"attempt": attempt + 1, "ok": True})
+            return extraction, debug
         except urllib.error.HTTPError as exc:
-            err_body = exc.read().decode(errors="ignore")[:400]
-            last_error = AIError(f"LLM HTTP {exc.code}: {err_body}")
+            err_body = exc.read().decode(errors="ignore")[:2000]
+            last_error = AIError(f"LLM HTTP {exc.code}: {err_body[:400]}")
+            debug["attempts"].append({"attempt": attempt + 1, "ok": False, "http_code": exc.code, "body": err_body})
             if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                debug["error"] = str(last_error)
                 raise last_error from exc
-        except (urllib.error.URLError, TimeoutError) as exc:
-            last_error = AIError(f"LLM connection error: {exc}")
-            if attempt == 2:
+        except (urllib.error.URLError, TimeoutError, AIError, json.JSONDecodeError) as exc:
+            last_error = exc if isinstance(exc, AIError) else AIError(f"LLM connection/parsing error: {exc}")
+            debug["attempts"].append({"attempt": attempt + 1, "ok": False, "error": str(last_error)})
+            if attempt == 2 or isinstance(exc, AIError):
+                debug["error"] = str(last_error)
                 raise last_error from exc
         time.sleep([2, 5][attempt])
     raise last_error or AIError("LLM request failed")
+
+
+def classify_receipt(
+    raw_text: str,
+    coa_short: list[dict[str, Any]],
+    *,
+    chat_url: str,
+    model: str,
+    api_key: str,
+    provider_order: str = "",
+    default_currency: str = "SGD",
+    timeout: int = 60,
+) -> ReceiptExtraction:
+    extraction, _debug = classify_receipt_with_debug(
+        raw_text,
+        coa_short,
+        chat_url=chat_url,
+        model=model,
+        api_key=api_key,
+        provider_order=provider_order,
+        default_currency=default_currency,
+        timeout=timeout,
+    )
+    return extraction
 
 
 def _coerce_json(text: str) -> dict[str, Any]:

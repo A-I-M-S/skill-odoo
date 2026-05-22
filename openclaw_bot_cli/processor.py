@@ -9,13 +9,14 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from .ai_automation import classify_receipt, shortlist_coa
+from .ai_automation import classify_receipt_with_debug, shortlist_coa
 from .config import Settings
 from .extraction import extract_text
 from . import fx
 from .models import ReceiptExtraction
 from .monthly_journal import ensure_month_draft, ref_for, rebuild_lines_with_shareholder_balance
 from .odoo_client import Odoo
+from .audit import write_audit
 
 
 log = logging.getLogger("skill-odoo")
@@ -102,9 +103,19 @@ def process_inbox(
     for path in files:
         try:
             text, kind = extract_text(path)
+            audit_base = {
+                "event": "receipt_processing",
+                "file": path.name,
+                "source_kind": kind,
+                "ocr_text": text,
+                "ocr_text_len": len(text),
+                "move_ref": ref,
+                "journal_code": journal["code"],
+            }
+            write_audit(settings.audit_log_dir, {**audit_base, "stage": "ocr_done"})
             if not text.strip():
                 raise RuntimeError("OCR produced no text")
-            extraction = classify_receipt(
+            extraction, ai_debug = classify_receipt_with_debug(
                 text,
                 coa_short,
                 chat_url=settings.ai_chat_url,
@@ -113,6 +124,12 @@ def process_inbox(
                 provider_order=settings.ai_provider_order,
                 default_currency=settings.default_currency,
             )
+            write_audit(settings.audit_log_dir, {
+                **audit_base,
+                "stage": "ai_done",
+                "ai": ai_debug,
+                "extraction": extraction.to_dict(),
+            })
             if extraction.debit_account_code not in code_to_id:
                 raise RuntimeError(f"AI returned unknown account code {extraction.debit_account_code!r}")
             if extraction.amount <= 0:
@@ -141,6 +158,10 @@ def process_inbox(
                      settings.fx_base_currency, converted, rate, extraction.debit_account_code)
         except Exception as exc:
             log.exception("FAIL %s", path.name)
+            try:
+                write_audit(settings.audit_log_dir, {"event": "receipt_processing", "file": path.name, "stage": "failed", "error": str(exc)})
+            except Exception:
+                pass
             failed_path = _move_to_failed(path, str(exc))
             results.append(FileResult(
                 path=path, ok=False, extraction=None, debit_sgd=0.0,
@@ -170,6 +191,7 @@ def process_inbox(
             debit_sgd=item.debit_sgd, rate=item.rate, move_id=draft.move_id,
             attachment_id=attach_id,
         ))
+        write_audit(settings.audit_log_dir, {"event": "receipt_processing", "file": item.path.name, "stage": "odoo_done", "move_id": draft.move_id, "attachment_id": attach_id, "debit_sgd": item.debit_sgd, "rate": item.rate, "extraction": item.extraction.to_dict()})
         log.info("OK %s -> %s %s%.2f rate=%.4f acct=%s", item.path.name, item.extraction.vendor,
                  settings.fx_base_currency, item.debit_sgd, item.rate, item.extraction.debit_account_code)
 

@@ -56,6 +56,7 @@ class Settings:
     ai_model: str
     ai_secret: str
     ai_provider_order: str
+    audit_log_dir: Path
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -83,4 +84,5 @@ class Settings:
             ai_model=os.getenv("AI_MODEL", "").strip(),
             ai_secret=os.getenv("AI_SECRET", "").strip(),
             ai_provider_order=os.getenv("AI_PROVIDER_ORDER", "").strip(),
+            audit_log_dir=Path(os.getenv("AUDIT_LOG_DIR", "./audit_logs")),
         )
