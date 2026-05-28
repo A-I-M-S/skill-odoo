@@ -137,3 +137,5 @@ Set `OCR_PROVIDER=zo` to use Zo inference OCR for images/scanned PDFs before
 falling back to local Tesseract. This is recommended for crumpled phone photos
 and receipts with Chinese text. Configure `ZO_OCR_TOKEN` on non-Zo hosts; on Zo
 Computer, `ZO_CLIENT_IDENTITY_TOKEN` is available automatically.
+
+[![Watch the video](https://img.youtube.com/vi/0stZ5avS9c0/0.jpg)](https://www.youtube.com/watch?v=0stZ5avS9c0)
