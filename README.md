@@ -134,7 +134,6 @@ deleted.
 
 
 ## OCR provider
-
 OCR is configured via `OCR_PROVIDER` in `.env`. Three providers are supported:
 
 | `OCR_PROVIDER` | Backend | Use when |
