@@ -159,3 +159,5 @@ fails for any reason, extraction falls back to local Tesseract automatically.
 For `OCR_PROVIDER=zo`, set `ZO_OCR_TOKEN` on non-Zo hosts; on Zo Computer,
 `ZO_CLIENT_IDENTITY_TOKEN` is picked up automatically. Configure the Zo OCR
 model with `ZO_OCR_MODEL` (default `openai:gpt-5.5-2026-04-23`).
+
+[![Watch the video](https://img.youtube.com/vi/0stZ5avS9c0/0.jpg)](https://www.youtube.com/watch?v=0stZ5avS9c0)
