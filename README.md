@@ -83,6 +83,8 @@ openclaw_bot_cli/
 ├── cli.py              # entrypoints: probe, run
 ├── config.py           # .env loader + Settings dataclass
 ├── extraction.py       # OCR / PDF-text extraction
+├── openai_ocr.py       # OpenAI-compatible vision OCR client
+├── zo_ocr.py           # Zo inference OCR client
 ├── ai_automation.py    # LLM classifier (OpenAI-compatible)
 ├── fx.py               # Frankfurter live FX → SGD
 ├── odoo_client.py      # XML-RPC wrapper
@@ -133,7 +135,28 @@ deleted.
 
 ## OCR provider
 
-Set `OCR_PROVIDER=zo` to use Zo inference OCR for images/scanned PDFs before
-falling back to local Tesseract. This is recommended for crumpled phone photos
-and receipts with Chinese text. Configure `ZO_OCR_TOKEN` on non-Zo hosts; on Zo
-Computer, `ZO_CLIENT_IDENTITY_TOKEN` is available automatically.
+OCR is configured via `OCR_PROVIDER` in `.env`. Three providers are supported:
+
+| `OCR_PROVIDER` | Backend | Use when |
+| --- | --- | --- |
+| `openai` (default) | Any OpenAI-compatible vision endpoint (OpenRouter, AgentRouter, MiniMax direct, OpenAI) | Best quality for crumpled phone photos, low-light receipts, mixed English/Chinese text |
+| `zo` | Zo inference OCR | Running on Zo Computer or another host with a `ZO_OCR_TOKEN` |
+| `tesseract` | Local `tesseract-ocr` | Offline / no-network fallback |
+
+The shipped default is **OpenRouter + `minimax/minimax-01`**:
+
+```ini
+OCR_PROVIDER=openai
+OCR_BASE_URL=https://openrouter.ai/api/v1
+OCR_MODEL=minimax/minimax-01
+OCR_API_KEY=sk-or-v1-...
+```
+
+Swap `OCR_BASE_URL` / `OCR_MODEL` to point at any other OpenAI-compatible
+vision model. PDFs are first tried as text via `pdfplumber`; OCR only runs when
+the PDF is image-only or the input is already an image. If the vision API call
+fails for any reason, extraction falls back to local Tesseract automatically.
+
+For `OCR_PROVIDER=zo`, set `ZO_OCR_TOKEN` on non-Zo hosts; on Zo Computer,
+`ZO_CLIENT_IDENTITY_TOKEN` is picked up automatically. Configure the Zo OCR
+model with `ZO_OCR_MODEL` (default `openai:gpt-5.5-2026-04-23`).

@@ -8,10 +8,22 @@ from typing import Any
 SUPPORTED_IMAGE = {".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff", ".bmp"}
 
 
-def extract_text(document_path: Path, *, ocr_provider: str = "tesseract", zo_ocr_token: str = "", zo_ocr_model: str = "openai:gpt-5.5-2026-04-23") -> tuple[str, str]:
+def extract_text(
+    document_path: Path,
+    *,
+    ocr_provider: str = "tesseract",
+    zo_ocr_token: str = "",
+    zo_ocr_model: str = "openai:gpt-5.5-2026-04-23",
+    ocr_base_url: str = "",
+    ocr_api_key: str = "",
+    ocr_model: str = "",
+    ocr_extra_headers: dict[str, str] | None = None,
+) -> tuple[str, str]:
     """Return ``(text, source_kind)`` for a given document.
 
-    ``source_kind`` is one of ``plain_text``, ``pdf_text``, ``ocr_pdf``, ``ocr_image``.
+    ``source_kind`` is one of ``plain_text``, ``pdf_text``, ``ocr_pdf``,
+    ``ocr_image``, ``openai_ocr_image``, ``openai_ocr_pdf``,
+    ``zo_ocr_image``, ``zo_ocr_pdf`` (plus ``*_fallback`` variants).
     """
     suffix = document_path.suffix.lower()
 
@@ -24,6 +36,21 @@ def extract_text(document_path: Path, *, ocr_provider: str = "tesseract", zo_ocr
         text = _extract_pdf_text(document_path)
         if text.strip():
             return text, "pdf_text"
+        if provider in {"openai", "openrouter", "agentrouter"}:
+            try:
+                from .openai_ocr import ocr_with_openai
+                return (
+                    ocr_with_openai(
+                        document_path,
+                        base_url=ocr_base_url,
+                        api_key=ocr_api_key,
+                        model=ocr_model,
+                        extra_headers=ocr_extra_headers,
+                    ),
+                    "openai_ocr_pdf",
+                )
+            except Exception:
+                return _ocr_pdf(document_path), "ocr_pdf_fallback"
         if provider == "zo":
             try:
                 from .zo_ocr import ocr_with_zo
@@ -33,6 +60,21 @@ def extract_text(document_path: Path, *, ocr_provider: str = "tesseract", zo_ocr
         return _ocr_pdf(document_path), "ocr_pdf"
 
     if suffix in SUPPORTED_IMAGE:
+        if provider in {"openai", "openrouter", "agentrouter"}:
+            try:
+                from .openai_ocr import ocr_with_openai
+                return (
+                    ocr_with_openai(
+                        document_path,
+                        base_url=ocr_base_url,
+                        api_key=ocr_api_key,
+                        model=ocr_model,
+                        extra_headers=ocr_extra_headers,
+                    ),
+                    "openai_ocr_image",
+                )
+            except Exception:
+                return _ocr_image(document_path), "ocr_image_fallback"
         if provider == "zo":
             try:
                 from .zo_ocr import ocr_with_zo

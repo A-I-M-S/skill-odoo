@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from .ai_automation import classify_receipt_with_debug, shortlist_coa
+from .odoo_cache import (
+    get_account,
+    get_chart_of_accounts,
+    get_company_currency,
+    get_journal,
+    get_user_info,
+)
 from .config import Settings
 from .extraction import extract_text
 from . import fx
@@ -52,6 +59,7 @@ def process_inbox(
     *,
     today: date | None = None,
     dry_run: bool = False,
+    force_refresh_coa: bool = False,
 ) -> dict[str, Any]:
     today = today or date.today()
     ref = ref_for(today, settings.move_ref_format)
@@ -65,17 +73,31 @@ def process_inbox(
         return {"ref": ref, "files": [], "move_id": None, "skipped": "empty inbox"}
 
     odoo = Odoo(url=settings.odoo_url, db=settings.odoo_db, login=settings.odoo_login, api_key=settings.odoo_api_key)
-    user = odoo.user_info()
+
+    fr = force_refresh_coa
+    user, src_user = get_user_info(odoo, settings, force_refresh=fr)
     co_id = user["company_id_int"]
-    co_ccy_id, co_ccy_name = odoo.company_currency(co_id)
-    journal = odoo.find_journal(settings.journal_code, settings.journal_type)
-    shareholder = odoo.find_account(settings.shareholder_account_code)
-    coa_full = odoo.chart_of_accounts()
+    (co_ccy_id, co_ccy_name), src_ccy = get_company_currency(odoo, co_id, settings, force_refresh=fr)
+    journal, src_jrn = get_journal(odoo, settings.journal_code, settings.journal_type, settings, force_refresh=fr)
+    shareholder, src_acc = get_account(odoo, settings.shareholder_account_code, settings, force_refresh=fr)
+    coa_full, src_coa = get_chart_of_accounts(odoo, settings, force_refresh=fr)
     coa_short = shortlist_coa(coa_full)
     code_to_id = {a["code"]: a["id"] for a in coa_full}
 
-    log.info("odoo company=%s ccy=%s journal=%s/%s shareholder=%s coa_short=%d/%d",
-             user["company_id"][1], co_ccy_name, journal["code"], journal["id"], shareholder["code"], len(coa_short), len(coa_full))
+    cache_sources = {
+        "user": src_user,
+        "currency": src_ccy,
+        "journal": src_jrn,
+        "shareholder": src_acc,
+        "coa": src_coa,
+    }
+    cache_hits = sum(1 for v in cache_sources.values() if v == "cache")
+    log.info(
+        "odoo company=%s ccy=%s journal=%s/%s shareholder=%s coa_short=%d/%d cache=%d/5 sources=%s",
+        user["company_id"][1], co_ccy_name, journal["code"], journal["id"],
+        shareholder["code"], len(coa_short), len(coa_full),
+        cache_hits, cache_sources,
+    )
 
     if dry_run:
         return {
@@ -84,6 +106,8 @@ def process_inbox(
             "shareholder": shareholder,
             "coa_short_count": len(coa_short),
             "coa_full_count": len(coa_full),
+            "coa_source": src_coa,
+            "cache_sources": cache_sources,
             "files": [str(p) for p in files],
         }
 
@@ -107,6 +131,9 @@ def process_inbox(
                 ocr_provider=settings.ocr_provider,
                 zo_ocr_token=settings.zo_ocr_token,
                 zo_ocr_model=settings.zo_ocr_model,
+                ocr_base_url=settings.ocr_base_url,
+                ocr_api_key=settings.ocr_api_key,
+                ocr_model=settings.ocr_model,
             )
             audit_base = {
                 "event": "receipt_processing",

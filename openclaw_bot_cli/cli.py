@@ -27,7 +27,22 @@ def main(argv: list[str] | None = None) -> int:
     p_run = sub.add_parser("run", help="Process all receipts in the inbox folder")
     _add_common(p_run)
     p_run.add_argument("--dry-run", action="store_true", help="Don't write anything to Odoo")
+    p_run.add_argument(
+        "--refresh-cache", "--refresh-coa",
+        dest="refresh_cache", action="store_true",
+        help="Force-refresh all cached Odoo lookups (user, currency, journal, account, COA)",
+    )
     p_run.add_argument("--output", type=Path, default=None, help="Write JSON result to this file")
+
+    p_coa = sub.add_parser("coa", help="Inspect / refresh the cached Chart of Accounts")
+    _add_common(p_coa)
+    p_coa.add_argument("action", choices=["show", "refresh"], help="show cached COA, or force-refresh from Odoo")
+    p_coa.add_argument("--full", action="store_true", help="Show all COA entries instead of the AI shortlist")
+
+    p_cache = sub.add_parser("cache", help="Inspect / refresh / clear the Odoo lookup cache")
+    _add_common(p_cache)
+    p_cache.add_argument("action", choices=["show", "refresh", "clear"],
+                          help="show entries, refresh all, or delete cache file")
 
     p_bot = sub.add_parser("telegram-bot", help="Run Telegram receipt ingestion bot")
     _add_common(p_bot)
@@ -58,11 +73,63 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "run":
-        result = process_inbox(settings, dry_run=args.dry_run)
+        result = process_inbox(settings, dry_run=args.dry_run, force_refresh_coa=args.refresh_cache)
         out = json.dumps(result, indent=2, default=str)
         print(out)
         if args.output:
             args.output.write_text(out, encoding="utf-8")
+        return 0
+
+    if args.cmd == "coa":
+        from .ai_automation import shortlist_coa
+        from .odoo_cache import get_chart_of_accounts
+
+        odoo = Odoo(url=settings.odoo_url, db=settings.odoo_db, login=settings.odoo_login, api_key=settings.odoo_api_key)
+        items, source = get_chart_of_accounts(odoo, settings, force_refresh=(args.action == "refresh"))
+        rows = items if args.full else shortlist_coa(items)
+        print(json.dumps({
+            "source": source,
+            "full_count": len(items),
+            "short_count": len(shortlist_coa(items)),
+            "shown": "full" if args.full else "short",
+            "items": [{"code": a.get("code"), "name": a.get("name"), "account_type": a.get("account_type")} for a in rows],
+        }, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.cmd == "cache":
+        from .odoo_cache import clear_cache, read_cache
+        from .ai_automation import shortlist_coa
+        from .odoo_cache import (
+            get_account, get_chart_of_accounts, get_company_currency,
+            get_journal, get_user_info,
+        )
+
+        if args.action == "clear":
+            clear_cache(settings)
+            print(json.dumps({"cleared": True}))
+            return 0
+
+        if args.action == "refresh":
+            odoo = Odoo(url=settings.odoo_url, db=settings.odoo_db, login=settings.odoo_login, api_key=settings.odoo_api_key)
+            user, _ = get_user_info(odoo, settings, force_refresh=True)
+            co_id = user["company_id_int"]
+            get_company_currency(odoo, co_id, settings, force_refresh=True)
+            get_journal(odoo, settings.journal_code, settings.journal_type, settings, force_refresh=True)
+            get_account(odoo, settings.shareholder_account_code, settings, force_refresh=True)
+            get_chart_of_accounts(odoo, settings, force_refresh=True)
+
+        raw = read_cache(settings)
+        summary = {
+            "meta": raw.get("meta", {}),
+            "entries": {
+                k: {
+                    "fetched_at": v.get("fetched_at"),
+                    "size": (len(v["value"]) if isinstance(v.get("value"), list) else 1),
+                }
+                for k, v in raw.get("entries", {}).items()
+            },
+        }
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0
 
     if args.cmd == "telegram-bot":
