@@ -7,5 +7,6 @@ failed_receipts/
 audit_logs/
 failed_receipts/
 logs/
+*.log*
 .coa_cache.json
 .odoo_cache.json
