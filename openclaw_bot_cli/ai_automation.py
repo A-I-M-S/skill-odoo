@@ -107,6 +107,10 @@ def classify_receipt_with_debug(
             except (KeyError, IndexError, TypeError) as exc:
                 raise AIError(f"Unexpected LLM response shape: {str(body)[:300]}") from exc
             parsed = _coerce_json(content)
+            if isinstance(parsed, list) and parsed:
+                parsed = parsed[0]
+            if not isinstance(parsed, dict):
+                raise AIError(f"LLM did not return a JSON object: {content[:200]}")
             extraction = _to_extraction(parsed, raw_text=raw_text, default_currency=default_currency)
             debug["raw_response"] = body
             debug["message_content"] = content
