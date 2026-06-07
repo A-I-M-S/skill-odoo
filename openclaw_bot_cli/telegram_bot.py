@@ -43,8 +43,13 @@ class TelegramReceiptBot:
         while True:
             try:
                 for update in self._get_updates():
-                    self._handle_update(update)
-                    self._save_offset(update["update_id"] + 1)
+                    try:
+                        self._handle_update(update)
+                    except Exception:
+                        LOG.exception("update handling failed update_id=%s", update.get("update_id"))
+                    finally:
+                        if "update_id" in update:
+                            self._save_offset(update["update_id"] + 1)
             except KeyboardInterrupt:
                 raise
             except Exception:
@@ -125,7 +130,17 @@ class TelegramReceiptBot:
         return bool(username and username in self.allowed_usernames)
 
     def _send_message(self, chat_id: int | str, text: str) -> None:
-        self._request("sendMessage", data={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+        try:
+            self._request("sendMessage", data={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+        except RuntimeError as exc:
+            if "can't parse entities" not in str(exc):
+                LOG.warning("Telegram message send failed: %s", exc)
+                return
+            LOG.warning("Telegram Markdown parse failed; retrying message as plain text")
+            try:
+                self._request("sendMessage", data={"chat_id": chat_id, "text": text})
+            except RuntimeError as plain_exc:
+                LOG.warning("Telegram plain-text message send failed: %s", plain_exc)
 
     def _extract_file_info(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         if msg.get("photo"):
