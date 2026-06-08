@@ -22,4 +22,4 @@ if [ ! -x "$VENV/bin/python" ]; then
 fi
 
 cd "$HERE"
-exec "$VENV/bin/python" -m openclaw_bot_cli "$@"
+exec "$VENV/bin/python" -m scripts "$@"

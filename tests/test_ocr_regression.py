@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from openclaw_bot_cli.extraction import extract_text
+from scripts.extraction import extract_text
 
 
 def test_fairprice_receipt_total_is_visible():

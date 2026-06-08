@@ -18,7 +18,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="openclaw_bot_cli", description="OpenClaw skill-odoo")
+    parser = argparse.ArgumentParser(prog="skill-odoo", description="skill-odoo receipt → Odoo pipeline")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_probe = sub.add_parser("probe", help="Authenticate + describe target Odoo (read-only)")

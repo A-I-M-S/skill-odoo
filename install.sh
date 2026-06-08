@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# One-shot installer for a fresh clone of skill-odoo.
-# - installs system OCR tools (tesseract, poppler) via apt if needed
-# - creates a venv and installs Python deps
-# - copies .env.sample -> .env if .env doesn't exist
-set -e
+# One-shot installer for skill-odoo.
+#   - installs system OCR tools (tesseract, poppler) via apt when missing
+#   - creates a venv and installs Python deps
+#   - creates the local tmp/ runtime tree
+#   - copies .env.sample -> .env if .env doesn't exist
+set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
 need_bin() { command -v "$1" >/dev/null 2>&1; }
 
+# 1. System OCR dependencies (only needed for the local tesseract fallback).
 if ! need_bin tesseract || ! need_bin pdftoppm; then
   if need_bin apt-get; then
     SUDO=""
@@ -20,17 +22,23 @@ if ! need_bin tesseract || ! need_bin pdftoppm; then
   fi
 fi
 
+# 2. Python virtualenv + deps.
 python3 -m venv .venv
 .venv/bin/pip install --quiet --upgrade pip
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install --quiet -r requirements.txt
 
+# 3. Runtime data tree (git-ignored).
+mkdir -p tmp/incoming_receipts tmp/failed_receipts tmp/audit_logs tmp/logs
+
+# 4. Config.
 [ -f .env ] || cp .env.sample .env
-[ -d incoming_receipts ] || mkdir -p incoming_receipts
 
-chmod +x ./skill-odoo
+chmod +x ./skill-odoo ./bin/*.sh
 
-echo
-echo "Setup complete. Next steps:"
-echo "  1) edit .env (Odoo + AI credentials)"
-echo "  2) ./skill-odoo probe       # verify Odoo connectivity"
-echo "  3) drop receipts into incoming_receipts/ and run ./skill-odoo run"
+cat <<'EOF'
+
+Setup complete. Next steps:
+  1) edit .env            # Odoo + AI credentials
+  2) ./skill-odoo probe   # verify Odoo connectivity
+  3) drop receipts into tmp/incoming_receipts/ and run ./skill-odoo run
+EOF

@@ -43,22 +43,19 @@ class Settings:
     monthly_consolidate: bool
     move_ref_format: str
     move_name_from_ref: bool
-    auto_post: bool
     default_currency: str
     # FX
     fx_provider: str
     fx_base_currency: str
     # OCR
     ocr_provider: str
-    zo_ocr_token: str
-    zo_ocr_model: str
     ocr_base_url: str
     ocr_api_key: str
     ocr_model: str
     # Inbox
     receipts_inbox: Path
     receipts_processed_delete: bool
-    # AI
+    # AI classifier
     ai_chat_url: str
     ai_model: str
     ai_secret: str
@@ -81,24 +78,21 @@ class Settings:
             monthly_consolidate=_b("MONTHLY_CONSOLIDATE", True),
             move_ref_format=os.getenv("MOVE_REF_FORMAT", "%y%b"),
             move_name_from_ref=_b("MOVE_NAME_FROM_REF", True),
-            auto_post=_b("AUTO_POST", False),
             default_currency=os.getenv("DEFAULT_CURRENCY", "SGD").upper(),
             fx_provider=os.getenv("FX_PROVIDER", "frankfurter").lower(),
             fx_base_currency=os.getenv("FX_BASE_CURRENCY", "SGD").upper(),
             ocr_provider=os.getenv("OCR_PROVIDER", "openai").strip().lower(),
-            zo_ocr_token=os.getenv("ZO_OCR_TOKEN", os.getenv("ZO_API_KEY", os.getenv("ZO_CLIENT_IDENTITY_TOKEN", ""))).strip(),
-            zo_ocr_model=os.getenv("ZO_OCR_MODEL", "openai:gpt-5.5-2026-04-23").strip(),
             ocr_base_url=os.getenv("OCR_BASE_URL", "https://openrouter.ai/api/v1").strip(),
             ocr_api_key=os.getenv(
                 "OCR_API_KEY",
-                os.getenv("OPENROUTER_AK", os.getenv("OPENROUTER_API_KEY", os.getenv("AI_SECRET", ""))),
+                os.getenv("OPENROUTER_API_KEY", os.getenv("AI_SECRET", "")),
             ).strip(),
             ocr_model=os.getenv("OCR_MODEL", "minimax/minimax-01").strip(),
-            receipts_inbox=Path(os.getenv("RECEIPTS_INBOX", "./incoming_receipts")),
+            receipts_inbox=Path(os.getenv("RECEIPTS_INBOX", "./tmp/incoming_receipts")),
             receipts_processed_delete=_b("RECEIPTS_PROCESSED_DELETE", True),
             ai_chat_url=os.getenv("AI_CHAT_URL", "").strip(),
             ai_model=os.getenv("AI_MODEL", "").strip(),
             ai_secret=os.getenv("AI_SECRET", "").strip(),
             ai_provider_order=os.getenv("AI_PROVIDER_ORDER", "").strip(),
-            audit_log_dir=Path(os.getenv("AUDIT_LOG_DIR", "./audit_logs")),
+            audit_log_dir=Path(os.getenv("AUDIT_LOG_DIR", "./tmp/audit_logs")),
         )
