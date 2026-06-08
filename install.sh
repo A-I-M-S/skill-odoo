@@ -33,12 +33,17 @@ mkdir -p tmp/incoming_receipts tmp/failed_receipts tmp/audit_logs tmp/logs
 # 4. Config.
 [ -f .env ] || cp .env.sample .env
 
-chmod +x ./skill-odoo ./bin/*.sh
+chmod +x ./skill-odoo
 
 cat <<'EOF'
 
 Setup complete. Next steps:
-  1) edit .env            # Odoo + AI credentials
-  2) ./skill-odoo probe   # verify Odoo connectivity
+  1) edit .env                          # Odoo + AI credentials
+  2) ./skill-odoo probe                 # verify Odoo connectivity
   3) drop receipts into tmp/incoming_receipts/ and run ./skill-odoo run
+
+To run the Telegram bot under PM2 (recommended):
+  pm2 start ecosystem.config.js
+  pm2 save
+  pm2 logs skill-odoo-bot
 EOF

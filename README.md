@@ -7,8 +7,9 @@ removed on success. Entries always stay **draft** — you review and post in Odo
 ## What it does
 
 1. Watches a folder (default `./tmp/incoming_receipts/`).
-2. Extracts text: PDF text layer via `pdfplumber`, otherwise OCR (vision LLM,
-   with local Tesseract as a fallback).
+2. Extracts text: PDF text layer via `pdfplumber`; otherwise the page image is
+   **uploaded to a vision LLM** (Gemma via OpenRouter by default) which reads
+   the receipt. Local Tesseract is only an offline fallback.
 3. Classifies the receipt against your live Odoo Chart of Accounts using an
    OpenAI-compatible LLM.
 4. Finds the current month's draft `account.move` in the configured journal
@@ -83,17 +84,15 @@ balancing credit line — ready for one-click posting.
 skill-odoo/
 ├── skill-odoo            # launcher (auto-bootstraps venv, runs python -m scripts)
 ├── install.sh            # one-shot installer
+├── ecosystem.config.js   # PM2 process definition for the Telegram bot
 ├── requirements.txt
 ├── .env.sample
-├── bin/                  # ops helpers
-│   ├── run-telegram-bot.sh
-│   └── ensure-telegram-bot.sh
 ├── scripts/              # the Python package (python -m scripts <command>)
 │   ├── __main__.py       # module entrypoint
 │   ├── cli.py            # commands: probe, run, coa, cache, telegram-bot
 │   ├── config.py         # .env loader + Settings
 │   ├── extraction.py     # PDF-text / OCR extraction
-│   ├── openai_ocr.py     # OpenAI-compatible vision OCR
+│   ├── openai_ocr.py     # vision-LLM OCR (uploads the image)
 │   ├── ai_automation.py  # LLM classifier
 │   ├── fx.py             # Frankfurter FX → SGD
 │   ├── odoo_client.py    # XML-RPC wrapper
@@ -102,7 +101,6 @@ skill-odoo/
 │   ├── processor.py      # end-to-end orchestration
 │   ├── models.py         # dataclasses
 │   └── telegram_bot.py   # Telegram ingestion bot
-├── tests/                # OCR regression test + fixtures
 └── tmp/                  # git-ignored runtime data (created by install.sh)
     ├── incoming_receipts/
     ├── failed_receipts/
@@ -114,19 +112,19 @@ skill-odoo/
 
 | `OCR_PROVIDER` | Backend | Use when |
 | --- | --- | --- |
-| `openai` (default) | Any OpenAI-compatible vision endpoint (OpenRouter, MiniMax, OpenAI) | Crumpled phone photos, low-light receipts, mixed English/Chinese |
-| `tesseract` | Local `tesseract-ocr` | Offline / no-network fallback |
+| `openai` (default) | Uploads the image to any OpenAI-compatible vision endpoint (OpenRouter → Gemma by default) | Crumpled phone photos, low-light receipts, mixed English/Chinese |
+| `tesseract` | Local `tesseract-ocr`, no upload | Offline / no-network fallback |
 
 PDFs are tried as text first via `pdfplumber`; OCR only runs when the PDF is
 image-only or the input is an image. If the vision API call fails, extraction
 falls back to local Tesseract automatically.
 
-The shipped default is OpenRouter + `minimax/minimax-01`:
+The shipped default is OpenRouter + Gemma:
 
 ```ini
 OCR_PROVIDER=openai
 OCR_BASE_URL=https://openrouter.ai/api/v1
-OCR_MODEL=minimax/minimax-01
+OCR_MODEL=google/gemma-4-26b-a4b-it:free
 OCR_API_KEY=sk-or-v1-...
 ```
 
@@ -138,18 +136,24 @@ A private long-polling ingestor for receipts.
 2. Start it once with no allowed users: `./skill-odoo telegram-bot`.
 3. Send `/start`; the bot replies with your numeric Telegram user ID.
 4. Add it to `.env`: `TELEGRAM_ALLOWED_USER_IDS=123456789`.
-5. Run it permanently in the background:
+5. Run it permanently under PM2:
 
 ```bash
-./bin/ensure-telegram-bot.sh         # start if not already running
-# or via @reboot cron:
-@reboot /home/openclaw/skill-odoo/bin/ensure-telegram-bot.sh
+pm2 start ecosystem.config.js   # start the bot (run from the repo root)
+pm2 save                        # persist the process list across reboots
+pm2 startup                     # (one-time) print the systemd boot command to run
+
+# monitoring
+pm2 status                      # process table
+pm2 logs skill-odoo-bot         # tail logs
+pm2 restart skill-odoo-bot      # restart after a code change
+pm2 stop skill-odoo-bot         # stop
 ```
 
 Send the bot a receipt photo, image, or PDF; it saves the file into
 `RECEIPTS_INBOX`, runs the pipeline immediately, and replies with the Odoo
 draft ref, total, debit account, and attachment id. Logs go to
-`tmp/logs/telegram-bot.log`.
+`tmp/logs/telegram-bot.log` (also viewable with `pm2 logs skill-odoo-bot`).
 
 Commands: `/process` (process the inbox now), `/status` (inbox + config).
 
@@ -166,9 +170,3 @@ tail -n 20 tmp/audit_logs/$(date +%Y-%m).jsonl | jq .
 
 If OCR fails or the model returns amount `0`, the receipt is moved to
 `tmp/failed_receipts/` with a `.error.txt` sidecar instead of being uploaded.
-
-## Tests
-
-```bash
-.venv/bin/python -m pytest tests/ -q
-```

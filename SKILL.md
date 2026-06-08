@@ -1,6 +1,6 @@
 ---
 name: skill-odoo
-description: "Turn receipts (PDF, image, scanned PDF) into balanced monthly draft journal entries in Odoo. Watches an inbox folder (or accepts uploads via Telegram), OCRs the file (OpenAI-compatible vision via OpenRouter + MiniMax-01 by default, with local Tesseract as a fallback), classifies the expense against the live Chart of Accounts via an LLM, converts non-SGD amounts to SGD via Frankfurter, appends a debit line to the current month's draft account.move, recomputes a single balancing credit to 202040 Shareholder Notes Payable, attaches the original file, and deletes the local copy on success. Entries stay draft for human review before posting."
+description: "Turn receipts (PDF, image, scanned PDF) into balanced monthly draft journal entries in Odoo. Watches an inbox folder (or accepts uploads via Telegram), uploads the file's image to a vision LLM for OCR (OpenAI-compatible, Gemma via OpenRouter by default, with local Tesseract as a fallback), classifies the expense against the live Chart of Accounts via an LLM, converts non-SGD amounts to SGD via Frankfurter, appends a debit line to the current month's draft account.move, recomputes a single balancing credit to 202040 Shareholder Notes Payable, attaches the original file, and deletes the local copy on success. Entries stay draft for human review before posting."
 ---
 
 # skill-odoo — Accounting Extraction Skill
@@ -21,8 +21,8 @@ included, ready for one-click posting.
 
 1. **Detect document type**
    - If a PDF contains a text layer, parse with `pdfplumber`.
-   - If scanned/image-based, OCR via the configured provider
-     (`openai` vision LLM, or local `tesseract`).
+   - If scanned/image-based, the page image is uploaded to a vision LLM
+     (`openai` provider), or OCRed locally via `tesseract`.
 2. **Extract fields**
    - Vendor / supplier, document date, currency, subtotal/tax/total,
      line-item hints when available.
@@ -66,7 +66,7 @@ included, ready for one-click posting.
   "attachment_id": 14821,
   "stage": "odoo_done",
   "ocr_source": "openai_ocr_pdf",
-  "model": "minimax/minimax-01"
+  "model": "google/gemma-4-26b-a4b-it:free"
 }
 ```
 

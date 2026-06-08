@@ -87,7 +87,7 @@ class Settings:
                 "OCR_API_KEY",
                 os.getenv("OPENROUTER_API_KEY", os.getenv("AI_SECRET", "")),
             ).strip(),
-            ocr_model=os.getenv("OCR_MODEL", "minimax/minimax-01").strip(),
+            ocr_model=os.getenv("OCR_MODEL", "google/gemma-4-26b-a4b-it:free").strip(),
             receipts_inbox=Path(os.getenv("RECEIPTS_INBOX", "./tmp/incoming_receipts")),
             receipts_processed_delete=_b("RECEIPTS_PROCESSED_DELETE", True),
             ai_chat_url=os.getenv("AI_CHAT_URL", "").strip(),
