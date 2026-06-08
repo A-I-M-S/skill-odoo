@@ -224,7 +224,7 @@ def _safe_filename(name: str) -> str:
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.basicConfig(level=logging.INFO, stream=sys.stdout, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     TelegramReceiptBot().run_forever()
     return 0
 

@@ -51,6 +51,7 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
+        stream=sys.stdout,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 

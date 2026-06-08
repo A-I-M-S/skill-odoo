@@ -23,7 +23,11 @@ if ! need_bin tesseract || ! need_bin pdftoppm; then
 fi
 
 # 2. Python virtualenv + deps.
-python3 -m venv .venv
+python3 -m venv .venv 2>/dev/null || {
+  echo "python3-venv not available; installing…"
+  apt-get install -y -qq python3-venv 2>/dev/null || sudo apt-get install -y -qq python3-venv
+  python3 -m venv .venv
+}
 .venv/bin/pip install --quiet --upgrade pip
 .venv/bin/pip install --quiet -r requirements.txt
 
