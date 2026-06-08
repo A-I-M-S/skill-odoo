@@ -12,8 +12,6 @@ def extract_text(
     document_path: Path,
     *,
     ocr_provider: str = "tesseract",
-    zo_ocr_token: str = "",
-    zo_ocr_model: str = "openai:gpt-5.5-2026-04-23",
     ocr_base_url: str = "",
     ocr_api_key: str = "",
     ocr_model: str = "",
@@ -22,8 +20,8 @@ def extract_text(
     """Return ``(text, source_kind)`` for a given document.
 
     ``source_kind`` is one of ``plain_text``, ``pdf_text``, ``ocr_pdf``,
-    ``ocr_image``, ``openai_ocr_image``, ``openai_ocr_pdf``,
-    ``zo_ocr_image``, ``zo_ocr_pdf`` (plus ``*_fallback`` variants).
+    ``ocr_image``, ``openai_ocr_image``, ``openai_ocr_pdf`` (plus
+    ``*_fallback`` variants).
     """
     suffix = document_path.suffix.lower()
 
@@ -51,12 +49,6 @@ def extract_text(
                 )
             except Exception:
                 return _ocr_pdf(document_path), "ocr_pdf_fallback"
-        if provider == "zo":
-            try:
-                from .zo_ocr import ocr_with_zo
-                return ocr_with_zo(document_path, token=zo_ocr_token, model_name=zo_ocr_model), "zo_ocr_pdf"
-            except Exception:
-                return _ocr_pdf(document_path), "ocr_pdf_fallback"
         return _ocr_pdf(document_path), "ocr_pdf"
 
     if suffix in SUPPORTED_IMAGE:
@@ -73,12 +65,6 @@ def extract_text(
                     ),
                     "openai_ocr_image",
                 )
-            except Exception:
-                return _ocr_image(document_path), "ocr_image_fallback"
-        if provider == "zo":
-            try:
-                from .zo_ocr import ocr_with_zo
-                return ocr_with_zo(document_path, token=zo_ocr_token, model_name=zo_ocr_model), "zo_ocr_image"
             except Exception:
                 return _ocr_image(document_path), "ocr_image_fallback"
         return _ocr_image(document_path), "ocr_image"

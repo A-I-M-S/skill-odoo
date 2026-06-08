@@ -134,30 +134,6 @@ def classify_receipt_with_debug(
     raise last_error or AIError("LLM request failed")
 
 
-def classify_receipt(
-    raw_text: str,
-    coa_short: list[dict[str, Any]],
-    *,
-    chat_url: str,
-    model: str,
-    api_key: str,
-    provider_order: str = "",
-    default_currency: str = "SGD",
-    timeout: int = 60,
-) -> ReceiptExtraction:
-    extraction, _debug = classify_receipt_with_debug(
-        raw_text,
-        coa_short,
-        chat_url=chat_url,
-        model=model,
-        api_key=api_key,
-        provider_order=provider_order,
-        default_currency=default_currency,
-        timeout=timeout,
-    )
-    return extraction
-
-
 def _coerce_json(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("```"):

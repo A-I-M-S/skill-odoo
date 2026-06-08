@@ -1,9 +1,9 @@
 ---
 name: skill-odoo
-description: "Turn receipts (PDF, image, scanned PDF) into balanced monthly draft journal entries in Odoo. Watches an inbox folder (or accepts uploads via Telegram), OCRs the file (OpenAI-compatible vision via OpenRouter + MiniMax-01 by default, with Zo and local Tesseract as alternatives), classifies the expense against the live Chart of Accounts via an LLM, converts non-SGD amounts to SGD via Frankfurter, appends a debit line to the current month's draft account.move, recomputes a single balancing credit to 202040 Shareholder Notes Payable, attaches the original file, and deletes the local copy on success. Entries stay draft for human review before posting."
+description: "Turn receipts (PDF, image, scanned PDF) into balanced monthly draft journal entries in Odoo. Watches an inbox folder (or accepts uploads via Telegram), uploads the file's image to a vision LLM for OCR (OpenAI-compatible, Gemma via OpenRouter by default, with local Tesseract as a fallback), classifies the expense against the live Chart of Accounts via an LLM, converts non-SGD amounts to SGD via Frankfurter, appends a debit line to the current month's draft account.move, recomputes a single balancing credit to 202040 Shareholder Notes Payable, attaches the original file, and deletes the local copy on success. Entries stay draft for human review before posting."
 ---
 
-# OpenClaw Accounting Extraction Skill
+# skill-odoo — Accounting Extraction Skill
 
 ## Purpose
 
@@ -20,9 +20,9 @@ included, ready for one-click posting.
 ## Workflow
 
 1. **Detect document type**
-   - If PDF contains a text layer, parse with `pdfplumber`.
-   - If scanned/image-based, OCR via the configured provider
-     (`openai` / `zo` / `tesseract`).
+   - If a PDF contains a text layer, parse with `pdfplumber`.
+   - If scanned/image-based, the page image is uploaded to a vision LLM
+     (`openai` provider), or OCRed locally via `tesseract`.
 2. **Extract fields**
    - Vendor / supplier, document date, currency, subtotal/tax/total,
      line-item hints when available.
@@ -40,6 +40,17 @@ included, ready for one-click posting.
    - Upload the source file as an `ir.attachment` on the move,
      delete the local file, write an audit log entry.
 
+## Commands
+
+```bash
+./skill-odoo probe              # auth + journal + shareholder account (read-only)
+./skill-odoo run --dry-run      # list inbox, show plan, no writes
+./skill-odoo run                # full pipeline
+./skill-odoo coa show           # inspect cached Chart of Accounts
+./skill-odoo cache refresh      # force-refresh cached Odoo lookups
+./skill-odoo telegram-bot       # run the Telegram ingestion bot
+```
+
 ## Output (audit log per receipt)
 
 ```json
@@ -53,9 +64,9 @@ included, ready for one-click posting.
   "credit_account_code": "202040",
   "move_ref": "26May",
   "attachment_id": 14821,
-  "stage": "posted_draft",
+  "stage": "odoo_done",
   "ocr_source": "openai_ocr_pdf",
-  "model": "minimax/minimax-01"
+  "model": "google/gemma-4-26b-a4b-it:free"
 }
 ```
 
@@ -63,7 +74,7 @@ included, ready for one-click posting.
 
 - Entries are always created as **draft** — never auto-posted.
 - Move is rejected if debits ≠ credits after recomputation.
-- Receipts with missing totals or amount `0` are routed to `./failed_receipts/`
-  with a `.error.txt` sidecar instead of being uploaded.
-- Raw OCR text and LLM response are preserved in `./audit_logs/` for traceability.
+- Receipts with missing totals or amount `0` are routed to
+  `./tmp/failed_receipts/` with a `.error.txt` sidecar instead of being uploaded.
+- Raw OCR text and LLM response are preserved in `./tmp/audit_logs/` for traceability.
 - API keys and binary file contents are never written to logs.

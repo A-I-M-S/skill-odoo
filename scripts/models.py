@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -33,25 +33,3 @@ class ReceiptExtraction:
             "confidence": round(self.confidence, 2),
             "notes": self.notes,
         }
-
-
-@dataclass
-class JournalLineDraft:
-    """One side of a journal entry to be posted to Odoo."""
-
-    account_id: int
-    name: str
-    debit: float = 0.0
-    credit: float = 0.0
-    partner_id: int | None = None
-
-    def to_odoo(self) -> dict[str, Any]:
-        line: dict[str, Any] = {
-            "account_id": self.account_id,
-            "name": self.name,
-            "debit": round(self.debit, 2),
-            "credit": round(self.credit, 2),
-        }
-        if self.partner_id:
-            line["partner_id"] = self.partner_id
-        return line

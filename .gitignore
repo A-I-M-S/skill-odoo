@@ -1,12 +1,14 @@
+# Secrets & local config
 .env
+
+# Python
 __pycache__/
 *.pyc
-incoming_receipts/
+.venv/
+
+# Runtime state & data (logs, audit, receipts) — see tmp/
+tmp/
 .telegram_offset
-failed_receipts/
-audit_logs/
-failed_receipts/
-logs/
-*.log*
-.coa_cache.json
 .odoo_cache.json
+.coa_cache.json
+*.log*

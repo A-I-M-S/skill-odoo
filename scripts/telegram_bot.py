@@ -34,7 +34,7 @@ class TelegramReceiptBot:
         self.allowed_ids = _csv_set(os.getenv("TELEGRAM_ALLOWED_USER_IDS", ""))
         self.allowed_usernames = {u.lstrip("@").lower() for u in _csv_set(os.getenv("TELEGRAM_ALLOWED_USERNAMES", ""))}
         self.api = f"https://api.telegram.org/bot{self.token}"
-        self.offset_path = Path(os.getenv("TELEGRAM_OFFSET_FILE", ".telegram_offset"))
+        self.offset_path = Path(os.getenv("TELEGRAM_OFFSET_FILE", "tmp/.telegram_offset"))
         self.timeout = int(os.getenv("TELEGRAM_POLL_TIMEOUT", "50"))
 
     def run_forever(self) -> None:

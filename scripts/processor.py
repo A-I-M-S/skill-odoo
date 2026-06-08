@@ -129,8 +129,6 @@ def process_inbox(
             text, kind = extract_text(
                 path,
                 ocr_provider=settings.ocr_provider,
-                zo_ocr_token=settings.zo_ocr_token,
-                zo_ocr_model=settings.zo_ocr_model,
                 ocr_base_url=settings.ocr_base_url,
                 ocr_api_key=settings.ocr_api_key,
                 ocr_model=settings.ocr_model,
