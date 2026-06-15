@@ -26,7 +26,7 @@ if [ ! -x "$VENV/bin/pip" ]; then
 fi
 
 # Ensure runtime tmp directories exist.
-mkdir -p "$HERE/tmp/incoming_receipts" "$HERE/tmp/failed_receipts" "$HERE/tmp/audit_logs"
+mkdir -p "$HERE/tmp/incoming_receipts" "$HERE/tmp/failed_receipts" "$HERE/tmp/audit_logs" "$HERE/tmp/logs"
 
 cd "$HERE"
 exec "$VENV/bin/python" -m scripts "$@"

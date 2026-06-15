@@ -8,10 +8,13 @@ slimmed Chart-of-Accounts.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import urllib.error
 import urllib.request
 from typing import Any
+
+LOG = logging.getLogger("skill-odoo.ai")
 
 from .models import ReceiptExtraction
 
@@ -116,6 +119,9 @@ def classify_receipt_with_debug(
             debug["message_content"] = content
             debug["parsed_json"] = parsed
             debug["attempts"].append({"attempt": attempt + 1, "ok": True})
+            LOG.info("classify success model=%s vendor=%s amount=%s %s acct=%s confidence=%.2f",
+                     model, extraction.vendor, extraction.amount, extraction.currency,
+                     extraction.debit_account_code, extraction.confidence)
             return extraction, debug
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode(errors="ignore")[:2000]
@@ -134,14 +140,17 @@ def classify_receipt_with_debug(
     raise last_error or AIError("LLM request failed")
 
 
-def _coerce_json(text: str) -> dict[str, Any]:
+def _coerce_json(text: str) -> dict[str, Any] | list[Any]:
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")
         if text.lower().startswith("json"):
             text = text[4:].lstrip()
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        raise AIError(f"LLM returned JSON of unexpected type: {type(parsed).__name__} ({text[:200]})")
     except json.JSONDecodeError:
         # last-resort: pick first { ... } block
         start = text.find("{")

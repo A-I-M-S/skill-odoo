@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import mimetypes
+import time
 import urllib.request
 from pathlib import Path
+
+LOG = logging.getLogger("skill-odoo.ocr")
 
 
 class OpenAIOCRError(RuntimeError):
@@ -105,6 +109,8 @@ def ocr_with_openai(
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/A-I-M-S/skill-odoo",
+        "X-Title": "skill-odoo",
     }
     if extra_headers:
         headers.update(extra_headers)
@@ -115,17 +121,26 @@ def ocr_with_openai(
         headers=headers,
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            body = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
+    last_error: OpenAIOCRError | None = None
+    for attempt in range(3):
         try:
-            err = exc.read().decode("utf-8", errors="replace")[:500]
-        except Exception:
-            err = str(exc)
-        raise OpenAIOCRError(f"OCR HTTP {exc.code}: {err}") from exc
-    except Exception as exc:
-        raise OpenAIOCRError(f"OCR request failed: {exc}") from exc
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = json.loads(r.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode(errors="ignore")[:500]
+            last_error = OpenAIOCRError(f"OCR HTTP {exc.code}: {err_body[:400]}")
+            LOG.warning("OCR attempt %d/3 HTTP %d: %s", attempt + 1, exc.code, err_body[:200])
+            if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise last_error from exc
+        except Exception as exc:
+            last_error = OpenAIOCRError(f"OCR request failed: {exc}")
+            LOG.warning("OCR attempt %d/3 failed: %s", attempt + 1, exc)
+            if attempt == 2:
+                raise last_error from exc
+        time.sleep([2, 5][attempt])
+    else:
+        raise last_error or OpenAIOCRError("OCR request failed after 3 attempts")
 
     try:
         choices = body.get("choices") or []
@@ -148,4 +163,5 @@ def ocr_with_openai(
     text = str(content or "").strip()
     if not text:
         raise OpenAIOCRError("OCR returned empty text")
+    LOG.info("OCR success model=%s text_len=%d", model, len(text))
     return text

@@ -21,7 +21,7 @@ from .config import Settings
 from .extraction import extract_text
 from . import fx
 from .models import ReceiptExtraction
-from .monthly_journal import ensure_month_draft, ref_for, rebuild_lines_with_shareholder_balance
+from .monthly_journal import MonthDraft, ensure_month_draft, ref_for, rebuild_lines_with_shareholder_balance
 from .odoo_client import Odoo
 from .audit import write_audit
 
@@ -111,16 +111,6 @@ def process_inbox(
             "files": [str(p) for p in files],
         }
 
-    draft = ensure_month_draft(
-        odoo,
-        journal_id=journal["id"],
-        journal_code=journal["code"],
-        today=today,
-        ref=ref,
-        name_from_ref=settings.move_name_from_ref,
-        shareholder_account_id=shareholder["id"],
-    )
-
     pending: list[PendingReceipt] = []
     results: list[FileResult] = []
 
@@ -192,14 +182,24 @@ def process_inbox(
                 write_audit(settings.audit_log_dir, {"event": "receipt_processing", "file": path.name, "stage": "failed", "error": str(exc)})
             except Exception:
                 pass
-            failed_path = _move_to_failed(path, str(exc))
+            failed_path = _move_to_failed(path, str(exc), settings.receipts_inbox.parent / "failed_receipts")
             results.append(FileResult(
                 path=path, ok=False, extraction=None, debit_sgd=0.0,
                 rate=0.0, move_id=None, attachment_id=None, error=str(exc),
                 failed_path=str(failed_path) if failed_path else "",
             ))
 
+    draft: MonthDraft | None = None
     if pending:
+        draft = ensure_month_draft(
+            odoo,
+            journal_id=journal["id"],
+            journal_code=journal["code"],
+            today=today,
+            ref=ref,
+            name_from_ref=settings.move_name_from_ref,
+            shareholder_account_id=shareholder["id"],
+        )
         totals = rebuild_lines_with_shareholder_balance(
             odoo,
             move_id=draft.move_id,
@@ -207,23 +207,22 @@ def process_inbox(
             ref=ref,
             new_debit_lines=[p.debit_line for p in pending],
         )
+        for item in pending:
+            attach_id = odoo.attach_file(
+                move_id=draft.move_id,
+                file_path=item.path,
+                mimetype=mimetypes.guess_type(item.path.name)[0],
+            )
+            results.append(FileResult(
+                path=item.path, ok=True, extraction=item.extraction,
+                debit_sgd=item.debit_sgd, rate=item.rate, move_id=draft.move_id,
+                attachment_id=attach_id,
+            ))
+            write_audit(settings.audit_log_dir, {"event": "receipt_processing", "file": item.path.name, "stage": "odoo_done", "move_id": draft.move_id, "attachment_id": attach_id, "debit_sgd": item.debit_sgd, "rate": item.rate, "extraction": item.extraction.to_dict()})
+            log.info("OK %s -> %s %s%.2f rate=%.4f acct=%s", item.path.name, item.extraction.vendor,
+                     settings.fx_base_currency, item.debit_sgd, item.rate, item.extraction.debit_account_code)
     else:
         totals = {"total_debit": 0.0, "credit": 0.0}
-
-    for item in pending:
-        attach_id = odoo.attach_file(
-            move_id=draft.move_id,
-            file_path=item.path,
-            mimetype=mimetypes.guess_type(item.path.name)[0],
-        )
-        results.append(FileResult(
-            path=item.path, ok=True, extraction=item.extraction,
-            debit_sgd=item.debit_sgd, rate=item.rate, move_id=draft.move_id,
-            attachment_id=attach_id,
-        ))
-        write_audit(settings.audit_log_dir, {"event": "receipt_processing", "file": item.path.name, "stage": "odoo_done", "move_id": draft.move_id, "attachment_id": attach_id, "debit_sgd": item.debit_sgd, "rate": item.rate, "extraction": item.extraction.to_dict()})
-        log.info("OK %s -> %s %s%.2f rate=%.4f acct=%s", item.path.name, item.extraction.vendor,
-                 settings.fx_base_currency, item.debit_sgd, item.rate, item.extraction.debit_account_code)
 
     if settings.receipts_processed_delete:
         for r in results:
@@ -235,7 +234,7 @@ def process_inbox(
 
     return {
         "ref": ref,
-        "move_id": draft.move_id,
+        "move_id": draft.move_id if draft else None,
         "journal": journal,
         "shareholder_account": shareholder,
         "totals": totals,
@@ -277,10 +276,9 @@ def _parse_date(s: str) -> date | None:
     return None
 
 
-def _move_to_failed(path: Path, reason: str) -> Path | None:
+def _move_to_failed(path: Path, reason: str, failed_dir: Path) -> Path | None:
     if not path.exists():
         return None
-    failed_dir = path.parent.parent / "failed_receipts"
     failed_dir.mkdir(parents=True, exist_ok=True)
     safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", path.name).strip("-") or "receipt"
     dest = failed_dir / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{safe_name}"
