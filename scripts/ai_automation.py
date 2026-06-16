@@ -105,6 +105,11 @@ def classify_receipt_with_debug(
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 body = json.loads(r.read().decode("utf-8"))
+            if "error" in body:
+                err = body["error"]
+                err_msg = err.get("message", str(err))
+                raise AIError(f"OpenRouter API error: {err_msg}")
+            
             try:
                 content = body["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError) as exc:

@@ -142,6 +142,11 @@ def ocr_with_openai(
     else:
         raise last_error or OpenAIOCRError("OCR request failed after 3 attempts")
 
+    if "error" in body:
+        err = body["error"]
+        err_msg = err.get("message", str(err))
+        raise OpenAIOCRError(f"OpenRouter API error: {err_msg}")
+
     try:
         choices = body.get("choices") or []
         message = choices[0]["message"]
