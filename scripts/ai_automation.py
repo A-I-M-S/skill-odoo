@@ -107,13 +107,16 @@ def classify_receipt_with_debug(
                 body = json.loads(r.read().decode("utf-8"))
             if "error" in body:
                 err = body["error"]
-                err_msg = err.get("message", str(err))
+                err_msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                err_code = err.get("code") if isinstance(err, dict) else None
+                if err_code in {408, 429, 500, 502, 503, 504}:
+                    raise TimeoutError(f"OpenRouter upstream error {err_code}: {err_msg}")
                 raise AIError(f"OpenRouter API error: {err_msg}")
             
             try:
                 content = body["choices"][0]["message"]["content"]
             except (KeyError, IndexError, TypeError) as exc:
-                raise AIError(f"Unexpected LLM response shape: {str(body)[:300]}") from exc
+                raise TimeoutError(f"Unexpected LLM response shape: {str(body)[:300]}") from exc
             parsed = _coerce_json(content)
             if isinstance(parsed, list) and parsed:
                 parsed = parsed[0]

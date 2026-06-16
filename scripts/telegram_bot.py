@@ -67,11 +67,11 @@ class TelegramReceiptBot:
         return data
 
     def _get_updates(self) -> list[dict[str, Any]]:
-        payload = {"timeout": self.timeout, "allowed_updates": json.dumps(["message"])}
+        payload = {"timeout": self.timeout, "allowed_updates": ["message"]}
         offset = self._load_offset()
         if offset is not None:
             payload["offset"] = offset
-        return self._request("getUpdates", data=payload).get("result", [])
+        return self._request("getUpdates", json=payload).get("result", [])
 
     def _load_offset(self) -> int | None:
         try:
@@ -131,14 +131,14 @@ class TelegramReceiptBot:
 
     def _send_message(self, chat_id: int | str, text: str) -> None:
         try:
-            self._request("sendMessage", data={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+            self._request("sendMessage", json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
         except RuntimeError as exc:
             if "can't parse entities" not in str(exc):
                 LOG.warning("Telegram message send failed: %s", exc)
                 return
             LOG.warning("Telegram Markdown parse failed; retrying message as plain text")
             try:
-                self._request("sendMessage", data={"chat_id": chat_id, "text": text})
+                self._request("sendMessage", json={"chat_id": chat_id, "text": text})
             except RuntimeError as plain_exc:
                 LOG.warning("Telegram plain-text message send failed: %s", plain_exc)
 
@@ -156,7 +156,7 @@ class TelegramReceiptBot:
         return None
 
     def _download_to_inbox(self, file_info: dict[str, Any]) -> Path:
-        data = self._request("getFile", data={"file_id": file_info["file_id"]})
+        data = self._request("getFile", json={"file_id": file_info["file_id"]})
         file_path = data["result"]["file_path"]
         dl = requests.get(f"https://api.telegram.org/file/bot{self.token}/{file_path}", timeout=120)
         dl.raise_for_status()
