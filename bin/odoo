@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# OpenClaw skill-odoo dispatcher.
+# Mirrors skill-secret/bin/secret: resolve own dir, source .env, exec Python.
+set -euo pipefail
+
+# This script lives in <skill>/bin/. The skill root is one level up.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$SKILL_DIR"
+
+# Source .env if present (auto-export all vars).
+if [ -f .env ]; then
+  set -a
+  . ./.env
+  set +a
+fi
+
+# Prefer the project venv; fall back to system python3 with a warning.
+if [ -x "$SKILL_DIR/.venv/bin/python" ]; then
+  PY="$SKILL_DIR/.venv/bin/python"
+else
+  PY="python3"
+  echo "WARN: $SKILL_DIR/.venv/bin/python not found; using system python3" >&2
+fi
+
+exec "$PY" -m skill_odoo "$@"
