@@ -38,7 +38,7 @@ EXPECTED_SUBCOMMANDS = {
 # Subcommands that are real (issue #5+). With env stripped, they return
 # code 5 (missing_env) and a structured error. The rest are still
 # "not implemented" stubs.
-REAL_SUBCOMMANDS = {"probe", "cache"}
+REAL_SUBCOMMANDS = {"probe", "cache", "chart-of-accounts", "get-move", "list-drafts"}
 
 
 def _run(args: list[str], *, expect_exit: int | None = None) -> subprocess.CompletedProcess:
@@ -86,9 +86,6 @@ def test_probe_returns_missing_env_when_no_dotenv() -> None:
 
 
 @pytest.mark.parametrize("subcommand,args", [
-    ("chart-of-accounts", []),
-    ("get-move", ["--id", "1"]),
-    ("list-drafts", []),
     ("list-invoices", []),
     ("list-bills", []),
     ("list-partners", []),
@@ -111,6 +108,20 @@ def test_stub_subcommand_returns_not_implemented(subcommand: str, args: list[str
     assert payload["code"] == 501
     assert payload["error"] == "not implemented"
     assert payload["subcommand"] == subcommand
+
+
+@pytest.mark.parametrize("subcommand,args", [
+    ("chart-of-accounts", []),
+    ("get-move", ["--id", "1"]),
+    ("list-drafts", []),
+])
+def test_real_read_subcommand_returns_missing_env(subcommand: str, args: list[str]) -> None:
+    """Read tools (issue #6) are real. With env stripped, they return code 5 (missing_env)."""
+    proc = _run([subcommand, *args], expect_exit=5)
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["ok"] is False
+    assert payload["code"] == 5
+    assert payload["error_kind"] == "missing_env"
 
 
 @pytest.mark.parametrize("subcommand,args", [

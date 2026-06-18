@@ -84,16 +84,60 @@ def cmd_probe(args: argparse.Namespace) -> int:          # issue #5
     return emit(payload)
 
 
-def cmd_chart_of_accounts(_args: argparse.Namespace) -> int:   # issue #6
-    return not_implemented("chart-of-accounts")
+def cmd_chart_of_accounts(args: argparse.Namespace) -> int:   # issue #6
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_chart_of_accounts
+    try:
+        payload = run_chart_of_accounts(
+            settings,
+            code_prefix=args.code_prefix,
+            account_type=args.account_type,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_get_move(_args: argparse.Namespace) -> int:     # issue #6
-    return not_implemented("get-move")
+def cmd_get_move(args: argparse.Namespace) -> int:     # issue #6
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_get_move
+    try:
+        payload = run_get_move(settings, move_id=args.id, ref=args.ref)
+    except ValueError as exc:
+        return fail(str(exc), code=2, error_kind="bad_args")
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_list_drafts(_args: argparse.Namespace) -> int:   # issue #6
-    return not_implemented("list-drafts")
+def cmd_list_drafts(args: argparse.Namespace) -> int:   # issue #6
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_list_drafts
+    try:
+        payload = run_list_drafts(
+            settings,
+            ref=args.ref,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            journal_code=args.journal_code,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
 def cmd_list_invoices(_args: argparse.Namespace) -> int:  # issue #7
@@ -190,6 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Substring match on account code (e.g. '6' for expenses)")
     p.add_argument("--type", dest="account_type", default=None,
                    help="Exact match on account.account.account_type")
+    p.add_argument("--limit", type=int, default=500, help="Max accounts to return (default 500)")
     p.set_defaults(func=cmd_chart_of_accounts)
 
     # get-move
@@ -204,9 +249,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list-drafts", help="List draft account.moves (this month, by ref, by date range)")
     _add_common(p)
     p.add_argument("--ref", default=None)
-    p.add_argument("--date-from", default=None, help="YYYY-MM-DD")
-    p.add_argument("--date-to", default=None, help="YYYY-MM-DD")
+    p.add_argument("--date-from", default=None, help="YYYY-MM-DD (defaults to 1st of this month)")
+    p.add_argument("--date-to", default=None, help="YYYY-MM-DD (defaults to last day of this month)")
     p.add_argument("--journal-code", default=None)
+    p.add_argument("--limit", type=int, default=100)
     p.set_defaults(func=cmd_list_drafts)
 
     # list-invoices
