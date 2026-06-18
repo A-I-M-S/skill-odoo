@@ -191,6 +191,125 @@ class Odoo:
         except RuntimeError:
             return None
 
+    # --- generic move / partner / search_read ----------------------------
+    def list_moves(
+        self,
+        *,
+        move_type: str,
+        partner_id: int | None = None,
+        state: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Generic account.move list with the given ``move_type`` filter.
+
+        ``move_type`` must be one of: ``"out_invoice"``, ``"in_invoice"``,
+        ``"out_refund"``, ``"in_refund"``, ``"entry"``. The read returns
+        id, name, ref, state, date, journal_id, partner_id, amount_total,
+        invoice_date, invoice_date_due.
+        """
+        domain: list[Any] = [["move_type", "=", move_type]]
+        if partner_id is not None:
+            domain.append(["partner_id", "=", partner_id])
+        if state is not None:
+            domain.append(["state", "=", state])
+        if date_from is not None:
+            domain.append(["invoice_date", ">=", date_from])
+        if date_to is not None:
+            domain.append(["invoice_date", "<=", date_to])
+        ids = self.rpc(
+            "account.move",
+            "search",
+            domain,
+            {"limit": limit, "order": "invoice_date desc, id desc"},
+        )
+        if not ids:
+            return []
+        moves = self.rpc(
+            "account.move",
+            "read",
+            [ids],
+            {
+                "fields": [
+                    "id", "name", "ref", "state", "date", "invoice_date",
+                    "invoice_date_due", "journal_id", "partner_id", "amount_total",
+                    "amount_residual", "currency_id",
+                ],
+            },
+        )
+        for m in moves:
+            for k in ("journal_id", "partner_id", "currency_id"):
+                v = m.get(k)
+                if isinstance(v, list) and len(v) == 2:
+                    m[k] = {"id": v[0], "name": v[1]}
+        return moves
+
+    def search_partners(
+        self,
+        *,
+        name_contains: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Search res.partner by name (substring, case-insensitive).
+
+        With no ``name_contains`` filter, returns the top-N partners ordered
+        by name. ``is_company`` is included so the agent can filter visually.
+        """
+        domain: list[Any] = []
+        if name_contains:
+            domain.append(["name", "=ilike", f"%{name_contains}%"])
+        ids = self.rpc(
+            "res.partner",
+            "search",
+            domain,
+            {"limit": limit, "order": "name"},
+        )
+        if not ids:
+            return []
+        return self.rpc(
+            "res.partner",
+            "read",
+            [ids],
+            {"fields": ["id", "name", "email", "is_company", "country_id", "vat"]},
+        )
+
+    def search_read(
+        self,
+        *,
+        model: str,
+        domain: list[Any] | str,
+        fields: list[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Generic escape-hatch read against any Odoo model.
+
+        ``domain`` may be a Python list (preferred) or a JSON string (the
+        CLI passes a string for shell-friendliness). ``fields`` defaults to
+        ``["id", "display_name"]``. ``limit`` is hard-capped at 1000.
+
+        NOTE: per Aloy's decision (issue #5), this method is **unrestricted**.
+        The skill's caller (the agent) is responsible for not reading
+        sensitive models unless intentional. Every call is audit-logged by
+        the dispatch wrapper in ``read_tools.py``.
+        """
+        # Hard cap.
+        if limit > 1000:
+            limit = 1000
+        if isinstance(domain, str):
+            import json as _json
+            domain = _json.loads(domain)
+        if not isinstance(domain, list):
+            raise ValueError("domain must be a JSON array of clauses")
+        if fields is None:
+            fields = ["id", "display_name"]
+        return self.rpc(
+            model,
+            "search_read",
+            [domain],
+            {"fields": fields, "limit": limit},
+        )
+
     # --- journal entries --------------------------------------------------
     def find_month_draft(self, *, journal_id: int, ref: str, today: date) -> int | None:
         """Locate the draft account.move we should append to for this month.

@@ -160,3 +160,203 @@ def run_list_drafts(
         },
         "moves": moves,
     }
+
+
+def run_list_invoices(
+    settings: Settings,
+    *,
+    partner_id: int | None = None,
+    state: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """List customer invoices (move_type='out_invoice')."""
+    odoo = Odoo(
+        url=settings.odoo_url,
+        db=settings.odoo_db,
+        login=settings.odoo_login,
+        api_key=settings.odoo_api_key,
+    )
+    invoices = odoo.list_moves(
+        move_type="out_invoice",
+        partner_id=partner_id,
+        state=state,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+    return {
+        "ok": True,
+        "count": len(invoices),
+        "filters": {
+            "partner_id": partner_id,
+            "state": state,
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": limit,
+        },
+        "invoices": invoices,
+    }
+
+
+def run_list_bills(
+    settings: Settings,
+    *,
+    partner_id: int | None = None,
+    state: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """List vendor bills (move_type='in_invoice')."""
+    odoo = Odoo(
+        url=settings.odoo_url,
+        db=settings.odoo_db,
+        login=settings.odoo_login,
+        api_key=settings.odoo_api_key,
+    )
+    bills = odoo.list_moves(
+        move_type="in_invoice",
+        partner_id=partner_id,
+        state=state,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+    )
+    return {
+        "ok": True,
+        "count": len(bills),
+        "filters": {
+            "partner_id": partner_id,
+            "state": state,
+            "date_from": date_from,
+            "date_to": date_to,
+            "limit": limit,
+        },
+        "bills": bills,
+    }
+
+
+def run_list_partners(
+    settings: Settings,
+    *,
+    name_contains: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Search res.partner by name (substring, case-insensitive)."""
+    odoo = Odoo(
+        url=settings.odoo_url,
+        db=settings.odoo_db,
+        login=settings.odoo_login,
+        api_key=settings.odoo_api_key,
+    )
+    partners = odoo.search_partners(name_contains=name_contains, limit=limit)
+    return {
+        "ok": True,
+        "count": len(partners),
+        "filters": {"name_contains": name_contains, "limit": limit},
+        "partners": partners,
+    }
+
+
+def run_search_read(
+    settings: Settings,
+    *,
+    model: str,
+    domain: str,
+    fields: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    """Generic Odoo model query (escape hatch).
+
+    Per Aloy's decision (issue #5): unrestricted. The agent is responsible
+    for not reading sensitive models unless intentional. Every call is
+    audit-logged with the model + domain summary.
+    """
+    import json as _json
+    odoo = Odoo(
+        url=settings.odoo_url,
+        db=settings.odoo_db,
+        login=settings.odoo_login,
+        api_key=settings.odoo_api_key,
+    )
+    try:
+        parsed_domain = _json.loads(domain) if isinstance(domain, str) else domain
+        parsed_fields = (
+            [f.strip() for f in fields.split(",") if f.strip()]
+            if isinstance(fields, str) and fields
+            else (fields or None)
+        )
+    except _json.JSONDecodeError as exc:
+        return {
+            "ok": False,
+            "error": f"invalid --domain JSON: {exc}",
+            "code": 2,
+            "error_kind": "bad_args",
+        }
+    if not isinstance(parsed_domain, list):
+        return {
+            "ok": False,
+            "error": "--domain must be a JSON array of clauses",
+            "code": 2,
+            "error_kind": "bad_args",
+        }
+    # Audit-log the call (model + domain summary, not full result).
+    try:
+        from .audit import write_audit
+        write_audit(
+            settings.audit_log_dir,
+            {
+                "event": "search_read",
+                "model": model,
+                "domain_summary": _summarize_domain(parsed_domain),
+                "fields": parsed_fields,
+                "limit": limit,
+            },
+        )
+    except Exception:
+        pass  # audit failure is non-fatal
+    records = odoo.search_read(
+        model=model,
+        domain=parsed_domain,
+        fields=parsed_fields,
+        limit=limit,
+    )
+    return {
+        "ok": True,
+        "model": model,
+        "count": len(records),
+        "records": records,
+    }
+
+
+def _summarize_domain(domain: list[Any]) -> str:
+    """Compact string summary of an Odoo domain for the audit log.
+
+    Sensitive-shaped values (anything that's a long string, especially with
+    hash / token / password semantics) are masked to ``***``. The point of
+    the summary is to record WHICH fields were filtered, not the values.
+    """
+    def _summarize_clause(clause: Any) -> str:
+        if isinstance(clause, str):
+            return clause  # operator like "|", "&"
+        if isinstance(clause, list) and len(clause) == 3:
+            field, op, val = clause
+            masked = _maybe_mask_value(field, val)
+            return f"[{field!r}, {op!r}, {masked!r}]"
+        return repr(clause)
+
+    def _maybe_mask_value(field: str, val: Any) -> Any:
+        if not isinstance(val, str):
+            return val
+        lower_field = field.lower()
+        if any(k in lower_field for k in ("password", "token", "secret", "key", "login")):
+            return "***"
+        if len(val) > 40:
+            return val[:20] + "..." + val[-5:]
+        return val
+
+    parts: list[str] = [_summarize_clause(c) for c in domain[:5]]
+    suffix = "..." if len(domain) > 5 else ""
+    return f"[{', '.join(parts)}{suffix}]"
