@@ -281,8 +281,30 @@ def cmd_attach_file(args: argparse.Namespace) -> int:   # issue #9
     return emit(payload)
 
 
-def cmd_process_receipt(_args: argparse.Namespace) -> int:  # issue #12
-    return not_implemented("process-receipt")
+def cmd_process_receipt(args: argparse.Namespace) -> int:  # issue #12
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.receipt import process_receipt
+    from pathlib import Path
+    try:
+        payload = process_receipt(
+            settings,
+            file_path=Path(args.file_path),
+            provided_text=args.text,
+        )
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    # process-receipt returns a structured failure dict rather than raising,
+    # so the exit code reflects `ok`. 0 on success, 3 on receipt-level failure
+    # (Odoo / FX / classify error), 4 on missing file / unsupported type.
+    if payload.get("ok"):
+        return emit(payload)
+    err = payload.get("error") or "receipt processing failed"
+    code = 3
+    if any(s in err.lower() for s in ("file not found", "unsupported file type")):
+        code = 4
+    return fail(err, code=code, error_kind="receipt_failed", **{k: v for k, v in payload.items() if k not in ("ok", "error")})
 
 
 def cmd_cache(args: argparse.Namespace) -> int:          # issue #5
