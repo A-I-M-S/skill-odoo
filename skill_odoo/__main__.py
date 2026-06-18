@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+from skill_odoo.config import Settings
+
 __all__ = ["main", "build_parser", "not_implemented", "emit", "fail"]
 
 
@@ -57,8 +59,29 @@ def not_implemented(subcommand: str) -> int:
 # ── Subcommand stubs (replaced in later issues) ──────────────────────────────
 
 
-def cmd_probe(_args: argparse.Namespace) -> int:        # issue #5
-    return not_implemented("probe")
+def _load_settings_or_fail() -> Settings | int:
+    """Load Settings.from_env(); on missing env, return an exit code instead.
+
+    Caller pattern: ``s = _load_settings_or_fail(); if isinstance(s, int): return s``
+    """
+    try:
+        return Settings.from_env()
+    except RuntimeError as exc:
+        return fail(str(exc), code=5, error_kind="missing_env")
+
+
+def cmd_probe(args: argparse.Namespace) -> int:          # issue #5
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.probe import run_probe
+    try:
+        payload = run_probe(settings, force_refresh=args.refresh_cache)
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
 def cmd_chart_of_accounts(_args: argparse.Namespace) -> int:   # issue #6
@@ -109,15 +132,25 @@ def cmd_process_receipt(_args: argparse.Namespace) -> int:  # issue #12
     return not_implemented("process-receipt")
 
 
-def cmd_cache(args: argparse.Namespace) -> int:         # issue #5
-    payload = {
-        "ok": False,
-        "error": "not implemented",
-        "code": 501,
-        "subcommand": "cache",
-        "cache_action": getattr(args, "cache_action", "?"),
-        "hint": "see A-I-M-S/skill-odoo issues #4+ for the real implementation",
-    }
+def cmd_cache(args: argparse.Namespace) -> int:          # issue #5
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.probe import run_cache_clear, run_cache_refresh, run_cache_show
+    action = args.cache_action
+    try:
+        if action == "show":
+            payload = run_cache_show(settings)
+        elif action == "refresh":
+            payload = run_cache_refresh(settings)
+        elif action == "clear":
+            payload = run_cache_clear(settings)
+        else:
+            return fail(f"unknown cache action: {action!r}", code=2)
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
     return emit(payload)
 
 
@@ -146,6 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
     # probe
     p = sub.add_parser("probe", help="Verify Odoo credentials and return user/company/cache status")
     _add_common(p)
+    p.add_argument("--refresh-cache", action="store_true",
+                   help="Force-refresh the Odoo lookup cache before returning")
     p.set_defaults(func=cmd_probe)
 
     # chart-of-accounts

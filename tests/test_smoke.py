@@ -35,6 +35,11 @@ EXPECTED_SUBCOMMANDS = {
     "_ocr-test",
 }
 
+# Subcommands that are real (issue #5+). With env stripped, they return
+# code 5 (missing_env) and a structured error. The rest are still
+# "not implemented" stubs.
+REAL_SUBCOMMANDS = {"probe", "cache"}
+
 
 def _run(args: list[str], *, expect_exit: int | None = None) -> subprocess.CompletedProcess:
     """Run bin/odoo from the skill root."""
@@ -71,16 +76,13 @@ def test_help_lists_every_subcommand() -> None:
     assert not missing, f"--help missing subcommands: {missing}"
 
 
-def test_probe_returns_not_implemented_json() -> None:
-    proc = _run(["probe"], expect_exit=0)
+def test_probe_returns_missing_env_when_no_dotenv() -> None:
+    """`probe` is now real (issue #5). With env stripped, it returns code 5 (missing_env)."""
+    proc = _run(["probe"], expect_exit=5)
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert payload == {
-        "ok": False,
-        "error": "not implemented",
-        "code": 501,
-        "subcommand": "probe",
-        "hint": "see A-I-M-S/skill-odoo issues #4+ for the real implementation",
-    }
+    assert payload["ok"] is False
+    assert payload["code"] == 5
+    assert payload["error_kind"] == "missing_env"
 
 
 @pytest.mark.parametrize("subcommand,args", [
@@ -100,15 +102,29 @@ def test_probe_returns_not_implemented_json() -> None:
     ("cancel-move", ["--id", "1"]),
     ("attach-file", ["--model", "account.move", "--id", "1", "--file-path", "/tmp/none"]),
     ("process-receipt", ["--file-path", "/tmp/none"]),
-    ("cache", ["show"]),
 ])
-def test_every_public_subcommand_returns_not_implemented(subcommand: str, args: list[str]) -> None:
+def test_stub_subcommand_returns_not_implemented(subcommand: str, args: list[str]) -> None:
+    """Subcommands not yet implemented return the 501 stub."""
     proc = _run([subcommand, *args], expect_exit=0)
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload["ok"] is False
     assert payload["code"] == 501
     assert payload["error"] == "not implemented"
     assert payload["subcommand"] == subcommand
+
+
+@pytest.mark.parametrize("subcommand,args", [
+    ("cache", ["show"]),
+    ("cache", ["refresh"]),
+    ("cache", ["clear"]),
+])
+def test_cache_subcommand_returns_missing_env(subcommand: str, args: list[str]) -> None:
+    """`cache` is now real (issue #5). With env stripped, it returns code 5 (missing_env)."""
+    proc = _run([subcommand, args[0]], expect_exit=5)
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["ok"] is False
+    assert payload["code"] == 5
+    assert payload["error_kind"] == "missing_env"
 
 
 def test_bad_args_exit_2() -> None:
