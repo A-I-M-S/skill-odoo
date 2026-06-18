@@ -10,6 +10,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Any, Callable
 
 __all__ = ["main", "build_parser", "not_implemented", "emit", "fail"]
@@ -269,6 +270,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # Load .env from the path supplied via --env (default: .env in skill dir).
+    # This is a no-op if the file is missing. Variables already in os.environ
+    # are preserved (the loader only fills in missing keys), so a parent
+    # process (e.g. bin/odoo) that pre-sourced the same file still wins.
+    env_path = Path(args.env) if args.env else None
+    if env_path and env_path.exists():
+        from skill_odoo.config import load_env_file  # local import to keep cold start cheap
+        load_env_file(env_path)
 
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
