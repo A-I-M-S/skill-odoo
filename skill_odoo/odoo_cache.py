@@ -1,6 +1,6 @@
 """Local file cache for near-static Odoo lookups.
 
-We avoid hitting Odoo RPC on every CLI run / Telegram message for things that
+We avoid hitting Odoo RPC on every CLI run for things that
 change rarely: the Chart of Accounts, the logged-in user info, the company
 currency, journals, and accounts looked up by code.
 
