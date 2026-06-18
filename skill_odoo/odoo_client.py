@@ -61,6 +61,136 @@ class Odoo:
         )
         return self.rpc("account.account", "read", [ids], {"fields": ["code", "name", "account_type"]})
 
+    # --- chart of accounts (filtered) -------------------------------------
+    def search_accounts(
+        self,
+        *,
+        code_prefix: str | None = None,
+        account_type: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Filtered account.account list.
+
+        ``code_prefix`` is a substring match on the account code (e.g. ``"6"``
+        for expenses). ``account_type`` is an exact match on
+        ``account.account.account_type`` (e.g. ``"expense"``,
+        ``"liability_payable"``). Both filters combine with AND. An empty /
+        no-filter call returns the full COA up to ``limit``.
+        """
+        domain: list[Any] = []
+        if code_prefix:
+            domain.append(["code", "=ilike", f"{code_prefix}%"])
+        if account_type:
+            domain.append(["account_type", "=", account_type])
+        ids = self.rpc("account.account", "search", domain, {"limit": limit, "order": "code"})
+        if not ids:
+            return []
+        return self.rpc(
+            "account.account",
+            "read",
+            [ids],
+            {"fields": ["code", "name", "account_type"]},
+        )
+
+    # --- moves ------------------------------------------------------------
+    def get_move_by_id(self, move_id: int) -> dict[str, Any] | None:
+        """Read a single account.move by id, with its lines. None if not found."""
+        ids = self.rpc("account.move", "search", [["id", "=", move_id]], {"limit": 1})
+        if not ids:
+            return None
+        return self._read_move_with_lines(ids[0])
+
+    def get_move_by_ref(self, ref: str) -> dict[str, Any] | None:
+        """Read a single account.move by ref OR name, with its lines.
+
+        Returns the most recent match (by id desc) if multiple. None if none.
+        """
+        ids = self.rpc(
+            "account.move",
+            "search",
+            ["|", ["ref", "=", ref], ["name", "=", ref]],
+            {"limit": 1, "order": "id desc"},
+        )
+        if not ids:
+            return None
+        return self._read_move_with_lines(ids[0])
+
+    def _read_move_with_lines(self, move_id: int) -> dict[str, Any]:
+        move = self.read_move(move_id)
+        line_ids = move.pop("line_ids", []) or []
+        lines = self.read_lines(line_ids)
+        # Flatten the (id, name) tuple from the many2one field.
+        for line in lines:
+            if isinstance(line.get("account_id"), list) and len(line["account_id"]) == 2:
+                line["account_id"] = {"id": line["account_id"][0], "name": line["account_id"][1]}
+        return {
+            "id": move_id,
+            "name": move.get("name"),
+            "ref": move.get("ref"),
+            "state": move.get("state"),
+            "date": move.get("date"),
+            "journal_id": (
+                {"id": move["journal_id"][0], "name": move["journal_id"][1]}
+                if isinstance(move.get("journal_id"), list) and len(move["journal_id"]) == 2
+                else move.get("journal_id")
+            ),
+            "amount_total": move.get("amount_total"),
+            "lines": lines,
+        }
+
+    def list_drafts(
+        self,
+        *,
+        ref: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        journal_id: int | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List draft account.moves (state='draft', move_type='entry').
+
+        All non-None filters combine with AND. Date strings are ISO YYYY-MM-DD.
+        When no date filter is given, this function does NOT default to this
+        month — callers that want "this month" should pass the dates in
+        explicitly (the dispatch wrapper does that).
+        """
+        domain: list[Any] = [
+            ["state", "=", "draft"],
+            ["move_type", "=", "entry"],
+        ]
+        if ref is not None:
+            # Odoo OR: prefix with "|" then the two clauses.
+            domain.append("|")
+            domain.append(["ref", "=", ref])
+            domain.append(["name", "=", ref])
+        if date_from is not None:
+            domain.append(["date", ">=", date_from])
+        if date_to is not None:
+            domain.append(["date", "<=", date_to])
+        if journal_id is not None:
+            domain.append(["journal_id", "=", journal_id])
+        ids = self.rpc("account.move", "search", domain, {"limit": limit, "order": "date desc, id desc"})
+        if not ids:
+            return []
+        moves = self.rpc(
+            "account.move",
+            "read",
+            [ids],
+            {"fields": ["id", "name", "ref", "state", "date", "journal_id", "amount_total"]},
+        )
+        for m in moves:
+            if isinstance(m.get("journal_id"), list) and len(m["journal_id"]) == 2:
+                m["journal_id"] = {"id": m["journal_id"][0], "name": m["journal_id"][1]}
+        return moves
+
+    def resolve_journal_id(self, code: str, type_: str = "general") -> int | None:
+        """Return the journal id for the given code (or type fallback), or None."""
+        try:
+            j = self.find_journal(code, type_)
+            return j.get("id")
+        except RuntimeError:
+            return None
+
     # --- journal entries --------------------------------------------------
     def find_month_draft(self, *, journal_id: int, ref: str, today: date) -> int | None:
         """Locate the draft account.move we should append to for this month.
