@@ -1,14 +1,40 @@
-# Secrets & local config
+# Runtime config
 .env
+.env.local
+.env.*.local
 
 # Python
 __pycache__/
-*.pyc
-.venv/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+build/
+dist/
+.eggs/
 
-# Runtime state & data (logs, audit, receipts) — see tmp/
+# Virtualenv
+.venv/
+venv/
+env/
+
+# Test / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.cache/
+
+# Skill runtime artefacts
 tmp/
-.telegram_offset
-.odoo_cache.json
-.coa_cache.json
-*.log*
+odoo_cache.json
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp

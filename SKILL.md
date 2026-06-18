@@ -1,80 +1,71 @@
 ---
 name: skill-odoo
-description: "Turn receipts (PDF, image, scanned PDF) into balanced monthly draft journal entries in Odoo. Watches an inbox folder (or accepts uploads via Telegram), uploads the file's image to a vision LLM for OCR (OpenAI-compatible, Gemma via OpenRouter by default, with local Tesseract as a fallback), classifies the expense against the live Chart of Accounts via an LLM, converts non-SGD amounts to SGD via Frankfurter, appends a debit line to the current month's draft account.move, recomputes a single balancing credit to 202040 Shareholder Notes Payable, attaches the original file, and deletes the local copy on success. Entries stay draft for human review before posting."
+description: OpenClaw skill: Odoo bridge (read/write moves, partners, COA, attachments) and agent-first receipt pipeline.
+metadata: {"openclaw":{"requires":{"bins":["python3"],"env":["ODOO_URL","ODOO_DB","ODOO_LOGIN","ODOO_API_KEY"]}}}
 ---
 
-# skill-odoo — Accounting Extraction Skill
+# skill-odoo
 
-## Purpose
+OpenClaw skill for an Odoo instance. Driven by the OpenClaw agent via
+`{baseDir}/bin/odoo <subcommand> [args]`. Every subcommand prints JSON to
+stdout; errors return `{"ok": false, "error": "...", "code": <int>}` and exit
+non-zero. No plaintext output. The full body for every subcommand lives in
+issue #13 — this is the bootstrap; the dispatch table below is the contract
+the agent can rely on for routing decisions.
 
-Convert expense documents (receipts / invoices) into Odoo-ready, balanced
-journal entries — one consolidated `account.move` per month, attachment
-included, ready for one-click posting.
+## OCR routing rule
 
-## Inputs
+The agent's own OCR is the primary path. If the agent can read the receipt
+itself, it should pass the extracted text to `process-receipt --text "<text>"`
+along with `--file-path <path>` for the attachment. When `--text` is absent,
+the in-skill chain runs in this order: `pdfplumber` (PDF text layer) →
+`pytesseract` (local OCR) → Gemma via OpenRouter (vision LLM). The winning
+path is recorded in the audit log.
 
-- Receipt file (PDF or image; scanned PDFs are OCRed)
-- Odoo connection: URL, DB, login, API key
-- Live Chart of Accounts (fetched from Odoo, cached locally)
+## Tools (subcommand → purpose)
 
-## Workflow
+| Subcommand | Purpose |
+|---|---|
+| `probe` | Verify Odoo credentials; return user, company, journal, shareholder account, cache status |
+| `chart-of-accounts` | List accounts (filter by code prefix or account type) |
+| `get-move` | Fetch a single `account.move` by id or ref, with its lines |
+| `list-drafts` | List draft `account.move`s (this month, by ref, by date range) |
+| `list-invoices` | List customer invoices |
+| `list-bills` | List vendor bills |
+| `list-partners` | Search partners by name |
+| `search-read` | Generic Odoo model query (escape hatch, audit-logged) |
+| `create-bill` | Create a vendor bill (one or more lines) |
+| `post-move` | Confirm (post) a draft `account.move` |
+| `cancel-move` | Reset a posted `account.move` back to draft |
+| `attach-file` | Upload an `ir.attachment` to any Odoo record |
+| `process-receipt` | Composite: OCR → classify → FX → monthly draft → attach → delete |
+| `cache show\|refresh\|clear` | Inspect / rebuild the Odoo lookup cache |
 
-1. **Detect document type**
-   - If a PDF contains a text layer, parse with `pdfplumber`.
-   - If scanned/image-based, the page image is uploaded to a vision LLM
-     (`openai` provider), or OCRed locally via `tesseract`.
-2. **Extract fields**
-   - Vendor / supplier, document date, currency, subtotal/tax/total,
-     line-item hints when available.
-3. **Load accounting context**
-   - Use cached Chart of Accounts JSON if fresh, else refresh from Odoo.
-4. **Classify accounting entry**
-   - LLM picks the best matching expense/asset account from the live chart.
-5. **Validate**
-   - Non-zero total, currency known, account code exists, FX rate available.
-6. **Append to monthly draft**
-   - Find/adopt/create the month's draft `account.move` in the configured
-     journal, append a debit line, recompute the single 202040 credit line
-     so the move stays balanced.
-7. **Attach + clean up**
-   - Upload the source file as an `ir.attachment` on the move,
-     delete the local file, write an audit log entry.
+## Output contract
 
-## Commands
+- Success: `{"ok": true, ...}` to stdout, exit 0
+- Failure: `{"ok": false, "error": "<message>", "code": <int>}` to stdout, exit = code
+- `code`: 0 = ok, 2 = bad args / missing input, 3 = upstream (Odoo) error, 4 = file not found, 5 = auth failed, 501 = not implemented (this issue returns 501 for all subcommands)
+
+## Setup
 
 ```bash
-./skill-odoo probe              # auth + journal + shareholder account (read-only)
-./skill-odoo run --dry-run      # list inbox, show plan, no writes
-./skill-odoo run                # full pipeline
-./skill-odoo coa show           # inspect cached Chart of Accounts
-./skill-odoo cache refresh      # force-refresh cached Odoo lookups
-./skill-odoo telegram-bot       # run the Telegram ingestion bot
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.sample .env
+$EDITOR .env             # fill in ODOO_URL, ODOO_DB, ODOO_LOGIN, ODOO_API_KEY
+./bin/odoo probe         # verify connectivity
+./bin/odoo --help        # tool list
 ```
 
-## Output (audit log per receipt)
+## Not here
 
-```json
-{
-  "file": "2026-05-22_uber.pdf",
-  "vendor": "Uber",
-  "date": "2026-05-22",
-  "currency": "SGD",
-  "total": 18.40,
-  "debit_account_code": "624000",
-  "credit_account_code": "202040",
-  "move_ref": "26May",
-  "attachment_id": 14821,
-  "stage": "odoo_done",
-  "ocr_source": "openai_ocr_pdf",
-  "model": "google/gemma-4-26b-a4b-it:free"
-}
-```
+- No Telegram bot (dropped)
+- No PM2 / ecosystem.config.js (dropped)
+- No `install.sh` system installer (dropped)
+- No long-polling — the OpenClaw agent drives the skill
 
-## Guardrails
+## Status
 
-- Entries are always created as **draft** — never auto-posted.
-- Move is rejected if debits ≠ credits after recomputation.
-- Receipts with missing totals or amount `0` are routed to
-  `./tmp/failed_receipts/` with a `.error.txt` sidecar instead of being uploaded.
-- Raw OCR text and LLM response are preserved in `./tmp/audit_logs/` for traceability.
-- API keys and binary file contents are never written to logs.
+Bootstrap complete. See A-I-M-S/skill-odoo#4 onwards for the implementation
+of each subcommand.
