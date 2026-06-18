@@ -43,6 +43,7 @@ REAL_SUBCOMMANDS = {
     "chart-of-accounts", "get-move", "list-drafts",
     "list-invoices", "list-bills", "list-partners", "search-read",
     "create-bill", "post-move", "cancel-move", "attach-file",
+    "process-receipt",
 }
 
 
@@ -93,14 +94,13 @@ def test_probe_returns_missing_env_when_no_dotenv() -> None:
 @pytest.mark.parametrize("subcommand,args", [
     ("process-receipt", ["--file-path", "/tmp/none"]),
 ])
-def test_stub_subcommand_returns_not_implemented(subcommand: str, args: list[str]) -> None:
-    """Subcommands not yet implemented return the 501 stub."""
-    proc = _run([subcommand, *args], expect_exit=0)
+def test_process_receipt_no_env(subcommand: str, args: list[str]) -> None:
+    """process-receipt (issue #12) is real. With env stripped, returns code 5 (missing_env)."""
+    proc = _run([subcommand, *args], expect_exit=5)
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload["ok"] is False
-    assert payload["code"] == 501
-    assert payload["error"] == "not implemented"
-    assert payload["subcommand"] == subcommand
+    assert payload["code"] == 5
+    assert payload["error_kind"] == "missing_env"
 
 
 @pytest.mark.parametrize("subcommand,args", [
