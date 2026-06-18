@@ -140,20 +140,84 @@ def cmd_list_drafts(args: argparse.Namespace) -> int:   # issue #6
     return emit(payload)
 
 
-def cmd_list_invoices(_args: argparse.Namespace) -> int:  # issue #7
-    return not_implemented("list-invoices")
+def cmd_list_invoices(args: argparse.Namespace) -> int:  # issue #7
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_list_invoices
+    try:
+        payload = run_list_invoices(
+            settings,
+            partner_id=args.partner_id,
+            state=args.state,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_list_bills(_args: argparse.Namespace) -> int:    # issue #7
-    return not_implemented("list-bills")
+def cmd_list_bills(args: argparse.Namespace) -> int:    # issue #7
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_list_bills
+    try:
+        payload = run_list_bills(
+            settings,
+            partner_id=args.partner_id,
+            state=args.state,
+            date_from=args.date_from,
+            date_to=args.date_to,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_list_partners(_args: argparse.Namespace) -> int:  # issue #7
-    return not_implemented("list-partners")
+def cmd_list_partners(args: argparse.Namespace) -> int:  # issue #7
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_list_partners
+    try:
+        payload = run_list_partners(
+            settings,
+            name_contains=args.name_contains,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_search_read(_args: argparse.Namespace) -> int:   # issue #7
-    return not_implemented("search-read")
+def cmd_search_read(args: argparse.Namespace) -> int:   # issue #7
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.read_tools import run_search_read
+    try:
+        payload = run_search_read(
+            settings,
+            model=args.model,
+            domain=args.domain,
+            fields=args.fields,
+            limit=args.limit,
+        )
+    except RuntimeError as exc:
+        return fail(str(exc), code=3, error_kind="odoo_error")
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
 def cmd_create_bill(_args: argparse.Namespace) -> int:   # issue #8
