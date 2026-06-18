@@ -307,8 +307,21 @@ def cmd_cache(args: argparse.Namespace) -> int:          # issue #5
     return emit(payload)
 
 
-def cmd_ocr_test(_args: argparse.Namespace) -> int:      # issue #10
-    return not_implemented("_ocr-test")
+def cmd_ocr_test(args: argparse.Namespace) -> int:      # issue #10
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.ocr_router import extract_receipt_text
+    try:
+        from pathlib import Path
+        payload = extract_receipt_text(
+            settings,
+            Path(args.file_path),
+            provided_text=args.text,
+        )
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
 # ── Parser construction ──────────────────────────────────────────────────────
