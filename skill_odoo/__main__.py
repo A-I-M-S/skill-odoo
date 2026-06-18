@@ -220,20 +220,65 @@ def cmd_search_read(args: argparse.Namespace) -> int:   # issue #7
     return emit(payload)
 
 
-def cmd_create_bill(_args: argparse.Namespace) -> int:   # issue #8
-    return not_implemented("create-bill")
+def cmd_create_bill(args: argparse.Namespace) -> int:   # issue #8
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.write_tools import run_create_bill
+    try:
+        payload = run_create_bill(
+            settings,
+            partner_name=args.partner_name,
+            invoice_date=args.invoice_date,
+            lines=args.lines,
+            ref=args.ref,
+            currency=args.currency,
+        )
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_post_move(_args: argparse.Namespace) -> int:     # issue #8
-    return not_implemented("post-move")
+def cmd_post_move(args: argparse.Namespace) -> int:     # issue #8
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.write_tools import run_post_move
+    try:
+        payload = run_post_move(settings, move_id=args.id)
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_cancel_move(_args: argparse.Namespace) -> int:   # issue #8
-    return not_implemented("cancel-move")
+def cmd_cancel_move(args: argparse.Namespace) -> int:   # issue #8
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.write_tools import run_cancel_move
+    try:
+        payload = run_cancel_move(settings, move_id=args.id)
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
-def cmd_attach_file(_args: argparse.Namespace) -> int:   # issue #9
-    return not_implemented("attach-file")
+def cmd_attach_file(args: argparse.Namespace) -> int:   # issue #9
+    settings = _load_settings_or_fail()
+    if isinstance(settings, int):
+        return settings
+    from skill_odoo.attach import run_attach_file
+    try:
+        payload = run_attach_file(
+            settings,
+            model=args.model,
+            res_id=args.id,
+            file_path=args.file_path,
+            name=args.name,
+        )
+    except Exception as exc:
+        return fail(f"{type(exc).__name__}: {exc}", code=1, error_kind="unexpected")
+    return emit(payload)
 
 
 def cmd_process_receipt(_args: argparse.Namespace) -> int:  # issue #12

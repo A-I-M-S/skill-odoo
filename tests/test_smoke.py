@@ -42,6 +42,7 @@ REAL_SUBCOMMANDS = {
     "probe", "cache",
     "chart-of-accounts", "get-move", "list-drafts",
     "list-invoices", "list-bills", "list-partners", "search-read",
+    "create-bill", "post-move", "cancel-move", "attach-file",
 }
 
 
@@ -90,14 +91,6 @@ def test_probe_returns_missing_env_when_no_dotenv() -> None:
 
 
 @pytest.mark.parametrize("subcommand,args", [
-    ("create-bill", [
-        "--partner-name", "x",
-        "--invoice-date", "2026-06-15",
-        "--lines", "[]",
-    ]),
-    ("post-move", ["--id", "1"]),
-    ("cancel-move", ["--id", "1"]),
-    ("attach-file", ["--model", "account.move", "--id", "1", "--file-path", "/tmp/none"]),
     ("process-receipt", ["--file-path", "/tmp/none"]),
 ])
 def test_stub_subcommand_returns_not_implemented(subcommand: str, args: list[str]) -> None:
@@ -121,6 +114,25 @@ def test_stub_subcommand_returns_not_implemented(subcommand: str, args: list[str
 ])
 def test_real_read_subcommand_returns_missing_env(subcommand: str, args: list[str]) -> None:
     """Read tools (issues #6 + #7) are real. With env stripped, they return code 5 (missing_env)."""
+    proc = _run([subcommand, *args], expect_exit=5)
+    payload = json.loads(proc.stdout.strip().splitlines()[-1])
+    assert payload["ok"] is False
+    assert payload["code"] == 5
+    assert payload["error_kind"] == "missing_env"
+
+
+@pytest.mark.parametrize("subcommand,args", [
+    ("create-bill", [
+        "--partner-name", "x",
+        "--invoice-date", "2026-06-15",
+        "--lines", "[]",
+    ]),
+    ("post-move", ["--id", "1"]),
+    ("cancel-move", ["--id", "1"]),
+    ("attach-file", ["--model", "account.move", "--id", "1", "--file-path", "/tmp/none"]),
+])
+def test_real_write_subcommand_returns_missing_env(subcommand: str, args: list[str]) -> None:
+    """Write tools (issues #8 + #9) are real. With env stripped, they return code 5 (missing_env)."""
     proc = _run([subcommand, *args], expect_exit=5)
     payload = json.loads(proc.stdout.strip().splitlines()[-1])
     assert payload["ok"] is False

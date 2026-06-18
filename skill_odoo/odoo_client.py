@@ -310,6 +310,119 @@ class Odoo:
             {"fields": fields, "limit": limit},
         )
 
+    # --- partner lookup for create-bill ----------------------------------
+    def get_partner_by_name(self, name: str) -> dict[str, Any] | None:
+        """Exact-match partner lookup. Returns None if not found.
+
+        Per Aloy's decision (issue #6): the create-bill tool uses exact
+        match only — no silent creation, no fuzzy match.
+        """
+        ids = self.rpc("res.partner", "search", [["name", "=", name]], {"limit": 1})
+        if not ids:
+            return None
+        return self.rpc(
+            "res.partner",
+            "read",
+            [ids],
+            {"fields": ["id", "name", "email", "is_company", "country_id", "vat"]},
+        )[0]
+
+    def suggest_partners(self, name: str, *, limit: int = 5) -> list[dict[str, Any]]:
+        """Case-insensitive substring match on partner name — for the
+        ``create-bill`` "did you mean" suggestions when exact match fails.
+        """
+        return self.search_partners(name_contains=name, limit=limit)
+
+    # --- write tools ------------------------------------------------------
+    def create_bill(
+        self,
+        *,
+        partner_id: int,
+        invoice_date: str,
+        lines: list[dict[str, Any]],
+        ref: str | None = None,
+        currency_id: int | None = None,
+    ) -> int:
+        """Create a vendor bill (move_type='in_invoice').
+
+        ``lines`` is a list of dicts with keys:
+        ``account_code`` (resolved to ``account_id``), ``name`` (line label),
+        ``quantity`` (default 1), ``price_unit`` (default 0),
+        ``tax_ids`` (optional list of tax ids).
+        ``currency_id`` defaults to the company's currency; pass a different
+        id to create the bill in a foreign currency.
+        """
+        line_vals: list[dict[str, Any]] = []
+        for line in lines:
+            code = line["account_code"]
+            account = self.find_account(code)
+            tax_ids = line.get("tax_ids")
+            line_vals.append({
+                "account_id": account["id"],
+                "name": line.get("name", ""),
+                "quantity": line.get("quantity", 1.0),
+                "price_unit": line.get("price_unit", 0.0),
+                **({"tax_ids": [(6, 0, tax_ids)]} if tax_ids else {}),
+            })
+        vals: dict[str, Any] = {
+            "move_type": "in_invoice",
+            "partner_id": partner_id,
+            "invoice_date": invoice_date,
+            "line_ids": [(0, 0, ln) for ln in line_vals],
+        }
+        if ref:
+            vals["ref"] = ref
+        if currency_id is not None:
+            vals["currency_id"] = currency_id
+        return self.rpc("account.move", "create", [vals])
+
+    def post_move(self, move_id: int) -> dict[str, Any]:
+        """Confirm a draft ``account.move`` (invoice or bill).
+
+        Uses ``action_post`` (Odoo 17+). On older versions this method
+        may be named ``button_confirm``; both exist in Odoo 17+ as
+        aliases. We pick the new name here.
+        """
+        self.rpc("account.move", "action_post", [[move_id]])
+        return self._read_move_summary(move_id)
+
+    def reset_move_to_draft(self, move_id: int) -> dict[str, Any]:
+        """Reset a posted ``account.move`` back to draft.
+
+        Per Aloy's decision (issue #6): do NOT call ``button_cancel`` (which
+        sets state to ``cancel`` and reverses the journal entry). Use the
+        Odoo method that reverts a posted move back to ``draft`` — in Odoo
+        17+ this is ``action_draft`` (alias ``button_draft``).
+        """
+        self.rpc("account.move", "action_draft", [[move_id]])
+        return self._read_move_summary(move_id)
+
+    def _read_move_summary(self, move_id: int) -> dict[str, Any]:
+        """Read just the summary fields of a move (no lines)."""
+        return self.rpc(
+            "account.move",
+            "read",
+            [[move_id]],
+            {"fields": ["id", "name", "ref", "state", "date", "amount_total", "currency_id"]},
+        )[0]
+
+    def read_move_summary(self, move_id: int) -> dict[str, Any] | None:
+        """Public version of ``_read_move_summary`` that returns None if not found."""
+        ids = self.rpc("account.move", "search", [["id", "=", move_id]], {"limit": 1})
+        if not ids:
+            return None
+        m = self._read_move_summary(move_id)
+        if isinstance(m.get("currency_id"), list) and len(m["currency_id"]) == 2:
+            m["currency_id"] = {"id": m["currency_id"][0], "name": m["currency_id"][1]}
+        return m
+
+    def find_currency(self, name: str) -> int | None:
+        """Return the id of the currency with the given ISO 4217 ``name`` (e.g. ``"SGD"``)."""
+        ids = self.rpc("res.currency", "search", [["name", "=", name.upper()]], {"limit": 1})
+        if not ids:
+            return None
+        return ids[0]
+
     # --- journal entries --------------------------------------------------
     def find_month_draft(self, *, journal_id: int, ref: str, today: date) -> int | None:
         """Locate the draft account.move we should append to for this month.
@@ -389,13 +502,33 @@ class Odoo:
         self.write_move(move_id, {"line_ids": ops})
 
     # --- attachments ------------------------------------------------------
-    def attach_file(self, *, move_id: int, file_path: Path, mimetype: str | None = None) -> int:
+    def attach_file(
+        self,
+        *,
+        move_id: int | None = None,
+        res_model: str = "account.move",
+        res_id: int | None = None,
+        file_path: Path,
+        mimetype: str | None = None,
+        display_name: str | None = None,
+    ) -> int:
+        """Upload a file as ``ir.attachment`` to an Odoo record.
+
+        Two call shapes are supported for back-compat:
+        - ``attach_file(move_id=..., file_path=...)``  -> attaches to ``account.move``
+        - ``attach_file(res_model=..., res_id=..., file_path=...)``  -> attaches to any model
+        """
+        if res_id is None and move_id is not None:
+            res_id = move_id
+            res_model = "account.move"
+        if res_id is None:
+            raise ValueError("either res_id= or move_id= must be given")
         data = base64.b64encode(file_path.read_bytes()).decode()
-        vals = {
-            "name": file_path.name,
+        vals: dict[str, Any] = {
+            "name": display_name or file_path.name,
             "datas": data,
-            "res_model": "account.move",
-            "res_id": move_id,
+            "res_model": res_model,
+            "res_id": res_id,
             "type": "binary",
         }
         if mimetype:
