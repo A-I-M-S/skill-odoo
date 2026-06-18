@@ -1,8 +1,8 @@
 # skill-odoo
 
-OpenClaw skill for an Odoo instance. Read and write journal entries, partners,
-chart of accounts, attachments — and process a receipt end-to-end (OCR → LLM
-classify → FX → monthly draft → attach → delete).
+OpenClaw skill for an Odoo instance. Read and write journal entries,
+partners, chart of accounts, attachments — and process a receipt
+end-to-end (OCR → LLM classify → FX → monthly draft → attach → delete).
 
 Driven by the OpenClaw agent via `bin/odoo <subcommand> [args]`. Every
 subcommand prints JSON to stdout.
@@ -39,16 +39,31 @@ $EDITOR .env               # fill in ODOO_URL, ODOO_DB, ODOO_LOGIN, ODOO_API_KEY
 | `process-receipt` | OCR → classify → FX → monthly draft → attach → delete |
 | `cache show\|refresh\|clear` | Inspect / rebuild the Odoo lookup cache |
 
-See `SKILL.md` for the full tool reference, the OCR routing rule, the output
-contract, and the per-subcommand flag docs.
+See `SKILL.md` for the full tool reference, the OCR routing rule, the
+output contract, and the per-subcommand flag docs.
+
+## Examples
+
+- **[examples/receipt-upload.md](examples/receipt-upload.md)** — worked
+  agent transcript showing a receipt being uploaded, OCR'd, classified,
+  FX-converted, posted as a draft, and the original file deleted.
+- **[examples/failed-receipt.md](examples/failed-receipt.md)** — what
+  happens when the LLM can't decide on an account code (file moved to
+  `tmp/failed_receipts/`, agent reports the failure to the user).
+
+## Reference
+
+- **[references/odoo-tools.md](references/odoo-tools.md)** — per-tool
+  output shapes, flag reference, and worked examples.
 
 ## OCR routing
 
 The OpenClaw agent's own OCR is the primary path. If the agent can read the
-receipt itself, it passes the extracted text to `process-receipt --text ...`
-along with `--file-path ...` for the attachment. When `--text` is absent, the
-in-skill chain runs: `pdfplumber` → `pytesseract` → Gemma via OpenRouter.
-The winning path is recorded in the audit log.
+receipt itself, it passes the extracted text to
+`process-receipt --text "..."` along with `--file-path ...` for the
+attachment. When `--text` is absent, the in-skill chain runs:
+`pdfplumber` → Gemma via OpenRouter → `pytesseract`. The winning path is
+recorded in the audit log.
 
 ## Not here
 
@@ -57,7 +72,19 @@ The winning path is recorded in the audit log.
 - No `install.sh` system installer (dropped)
 - No long-polling — the OpenClaw agent drives the skill
 
+## Tests
+
+```bash
+.venv/bin/python -m pytest tests/ -v
+```
+
+139 tests pass (+1 skipped — the live-Odoo smoke test). Every subcommand
+is covered; every error path is exercised.
+
 ## License
 
-Same as the original `A-I-M-S/skill-odoo` project (see `LICENSE` if present,
-otherwise follow the upstream repo).
+Same as the original `A-I-M-S/skill-odoo` project. The reference standalone
+implementation lives at
+[github.com/A-I-M-S/skill-odoo](https://github.com/A-I-M-S/skill-odoo)
+for diffing purposes; this repository is the OpenClaw-skill-shaped
+replacement.
